@@ -62,6 +62,7 @@ import coil.compose.AsyncImage
 import io.github.brandonscollins.yarn.data.model.Collection
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.settings.PlexPrefs
+import io.github.brandonscollins.yarn.ui.common.ALPHABET_RAIL_WIDTH
 import io.github.brandonscollins.yarn.ui.common.AlphabetRail
 import io.github.brandonscollins.yarn.ui.common.ThinProgressBar
 import io.github.brandonscollins.yarn.ui.common.formatDuration
@@ -274,13 +275,20 @@ private fun BookListing(
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val showRail = sortMode == SortMode.Title
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            // The rail is an overlay that eats touches, so keep the rows out from under it —
+            // otherwise a tap on the right edge of a book scrolls the alphabet instead of opening it.
+            contentPadding = PaddingValues(end = if (showRail) ALPHABET_RAIL_WIDTH else 0.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
             items(rows, key = { it.book.id }) { row ->
                 BookListRow(row, prefs, showThumb = viewMode == ViewMode.List, onClick = { onOpenBook(row.book.id) })
             }
         }
-        if (sortMode == SortMode.Title) {
+        if (showRail) {
             val letterIndex = remember(rows) { firstIndexByLetter(rows) }
             AlphabetRail(
                 availableLetters = letterIndex.keys,
@@ -312,7 +320,10 @@ private fun nearestIndex(
 ): Int? {
     if (letterIndex.isEmpty()) return null
     letterIndex[letter]?.let { return it }
-    return letterIndex.minByOrNull { kotlin.math.abs(it.key - letter) }?.value
+    // Only the letters the rail actually draws get to be "nearest": a title starting with a digit
+    // or a quote keeps its own bucket but shouldn't win the contest for a tap on M.
+    return letterIndex.filterKeys { it in 'A'..'Z' }.ifEmpty { letterIndex }
+        .minByOrNull { kotlin.math.abs(it.key - letter) }?.value
 }
 
 @Composable

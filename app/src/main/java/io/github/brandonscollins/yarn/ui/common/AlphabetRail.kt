@@ -29,6 +29,12 @@ import androidx.compose.ui.unit.sp
 private val LETTERS = ('A'..'Z').toList()
 
 /**
+ * The rail's hit-target width. It's drawn as an overlay, so callers inset their own content by this
+ * much — otherwise the last [ALPHABET_RAIL_WIDTH] of every row sits under the rail and can't be tapped.
+ */
+val ALPHABET_RAIL_WIDTH = 20.dp
+
+/**
  * Slim right-edge fast-scroll rail. Drag or tap maps y-position to a letter and reports it via
  * [onLetterSelected]; letters not in [availableLetters] render dimmed (the caller decides what
  * "nearest" means when one of those is picked). Shows a floating bubble with the current letter
@@ -46,7 +52,7 @@ fun AlphabetRail(
     Box(modifier = modifier) {
         Column(
             modifier =
-                Modifier.fillMaxHeight().width(20.dp).pointerInput(Unit) {
+                Modifier.fillMaxHeight().width(ALPHABET_RAIL_WIDTH).pointerInput(Unit) {
                     fun letterAt(y: Float): Char {
                         val rowHeight = size.height / LETTERS.size.toFloat()
                         val index = (y / rowHeight).toInt().coerceIn(0, LETTERS.lastIndex)
