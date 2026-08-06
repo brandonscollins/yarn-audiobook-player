@@ -24,10 +24,26 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE id = :bookId")
     fun getBook(bookId: Int): Flow<Audiobook?>
 
-    /** Local-only title/author search. SQLite's LIKE is case-insensitive for ASCII by default. */
-    @Query("SELECT * FROM books WHERE title LIKE '%' || :query || '%' OR author LIKE '%' || :query || '%'")
-    fun search(query: String): Flow<List<Audiobook>>
+    /**
+     * Local-only title/author search. Takes a ready-made pattern from [likePattern] rather than the
+     * raw query, so a typed `%` or `_` doesn't act as a wildcard. SQLite's LIKE is case-insensitive
+     * for ASCII by default.
+     */
+    @Query(
+        """
+        SELECT * FROM books
+        WHERE title LIKE :pattern ESCAPE '\' OR author LIKE :pattern ESCAPE '\'
+        """,
+    )
+    fun search(pattern: String): Flow<List<Audiobook>>
 
     @Upsert
     suspend fun upsertAll(books: List<Audiobook>)
 }
+
+/**
+ * Wraps [query] in `%…%` for [BookDao.search], escaping LIKE's own metacharacters so they match
+ * themselves. Backslash goes first — escaping it after `%`/`_` would double their escapes.
+ */
+fun likePattern(query: String): String =
+    "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"

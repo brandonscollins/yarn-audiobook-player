@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
+import io.github.brandonscollins.yarn.data.local.likePattern
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.Collection
 import io.github.brandonscollins.yarn.data.model.PlaybackPosition
@@ -76,7 +77,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 if (query.isBlank()) {
                     flowOf(emptyList())
                 } else {
-                    combine(db.bookDao().search(query), db.positionDao().getAll(), sortMode) { books, positions, sort ->
+                    combine(
+                        db.bookDao().search(likePattern(query)),
+                        db.positionDao().getAll(),
+                        sortMode,
+                    ) { books, positions, sort ->
                         rows(db, books, positions, sort)
                     }
                 }
@@ -117,6 +122,10 @@ private fun sortRows(
     when (sort) {
         SortMode.Title -> rows.sortedBy { sortTitle(it.book.title).lowercase() }
         SortMode.RecentlyAdded -> rows.sortedByDescending { it.book.addedAt }
-        // 0 (unknown) sorts last for free: it's smaller than any real epoch-millis value.
-        SortMode.RecentlyPublished -> rows.sortedByDescending { it.book.publishedAtEpochMs }
+        // 0 (unknown) has to sort last explicitly: a pre-1970 publication date is *negative*
+        // epoch-millis, and plenty of audiobooks carry the original book's year.
+        SortMode.RecentlyPublished ->
+            rows.sortedByDescending {
+                it.book.publishedAtEpochMs.takeIf { ms -> ms != 0L } ?: Long.MIN_VALUE
+            }
     }

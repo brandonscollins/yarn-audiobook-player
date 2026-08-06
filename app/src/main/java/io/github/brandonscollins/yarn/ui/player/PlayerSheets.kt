@@ -29,8 +29,12 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
@@ -58,6 +62,24 @@ private fun stepSpeed(
 /** The big readout: always two decimals, like the reference. */
 private fun speedReadout(speed: Float) = "%.2fx".format(speed)
 
+/** Whole dB. The readout has no room for half-steps, so this is also what gets applied. */
+private fun boostDb(mB: Float) = (mB / 100f).roundToInt()
+
+/**
+ * Local value for a slider whose committed value round-trips through the service.
+ *
+ * Dragging updates this and nothing else; the commit happens once, on release. Otherwise every pixel
+ * of drag is a session-command IPC plus a `SharedPreferences` write, and the asynchronous echo of
+ * each commit arrives mid-gesture and fights the finger. Same shape as the Player screen's scrub
+ * slider; [committed] re-seeds it whenever the real value changes (including our own commit landing).
+ */
+@Composable
+private fun rememberDragValue(committed: Float): MutableState<Float> {
+    val state = remember { mutableStateOf(committed) }
+    LaunchedEffect(committed) { state.value = committed }
+    return state
+}
+
 /** Chip labels: 0.5x, 1x, 1.5x. */
 private fun speedLabel(speed: Float) = "%.2f".format(speed).trimEnd('0').trimEnd('.') + "x"
 
@@ -72,6 +94,7 @@ fun SpeedSheet(
     onSpeedChange: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val shown = rememberDragValue(speed.coerceIn(MIN_SPEED, MAX_SPEED))
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 40.dp),
@@ -83,7 +106,7 @@ fun SpeedSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                speedReadout(speed),
+                speedReadout(shown.value),
                 style = MaterialTheme.typography.displayLarge,
                 modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
             )
@@ -91,20 +114,25 @@ fun SpeedSheet(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                InkCircleButton(Icons.Filled.Remove, "Slower") { onSpeedChange(stepSpeed(speed, -1)) }
+                InkCircleButton(Icons.Filled.Remove, "Slower") {
+                    onSpeedChange(stepSpeed(shown.value, -1))
+                }
                 Slider(
-                    value = speed.coerceIn(MIN_SPEED, MAX_SPEED),
-                    onValueChange = onSpeedChange,
+                    value = shown.value,
+                    onValueChange = { shown.value = it },
+                    onValueChangeFinished = { onSpeedChange(shown.value) },
                     valueRange = MIN_SPEED..MAX_SPEED,
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                 )
-                InkCircleButton(Icons.Filled.Add, "Faster") { onSpeedChange(stepSpeed(speed, 1)) }
+                InkCircleButton(Icons.Filled.Add, "Faster") {
+                    onSpeedChange(stepSpeed(shown.value, 1))
+                }
             }
             Spacer(modifier = Modifier.height(20.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SPEED_PRESETS.forEach { preset ->
                     FilterChip(
-                        selected = abs(speed - preset) < 0.001f,
+                        selected = abs(shown.value - preset) < 0.001f,
                         onClick = { onSpeedChange(preset) },
                         label = { Text(speedLabel(preset)) },
                         shape = CircleShape,
@@ -131,6 +159,7 @@ fun EqSheet(
     val eqPreset by controller.eqPreset.collectAsState()
     val bandLevels by controller.eqBandLevels.collectAsState()
     val bandInfo by controller.eqBandInfo.collectAsState()
+    val shownBoost = rememberDragValue(boostMb.toFloat())
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -145,13 +174,14 @@ fun EqSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "+${boostMb / 100} dB",
+                "+${boostDb(shownBoost.value)} dB",
                 style = MaterialTheme.typography.displayMedium,
                 modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
             )
             Slider(
-                value = boostMb.toFloat(),
-                onValueChange = { controller.setBoost(it.roundToInt()) },
+                value = shownBoost.value,
+                onValueChange = { shownBoost.value = it },
+                onValueChangeFinished = { controller.setBoost(boostDb(shownBoost.value) * 100) },
                 valueRange = 0f..MAX_BOOST_MB.toFloat(),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -205,7 +235,7 @@ fun EqSheet(
                         VerticalSlider(
                             value = bandLevels.getOrElse(band) { 0 }.toFloat(),
                             valueRange = info.minLevelMb.toFloat()..info.maxLevelMb.toFloat(),
-                            onValueChange = { controller.setEqBand(band, it.roundToInt().toShort()) },
+                            onCommit = { controller.setEqBand(band, it.roundToInt().toShort()) },
                         )
                         Text(
                             info.centerFreqLabels.getOrElse(band) { "" },
@@ -248,12 +278,14 @@ private fun InkCircleButton(
 private fun VerticalSlider(
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit,
+    onCommit: (Float) -> Unit,
 ) {
+    val shown = rememberDragValue(value.coerceIn(valueRange.start, valueRange.endInclusive))
     Box(modifier = Modifier.width(56.dp).height(160.dp), contentAlignment = Alignment.Center) {
         Slider(
-            value = value.coerceIn(valueRange.start, valueRange.endInclusive),
-            onValueChange = onValueChange,
+            value = shown.value,
+            onValueChange = { shown.value = it },
+            onValueChangeFinished = { onCommit(shown.value) },
             valueRange = valueRange,
             modifier =
                 Modifier
