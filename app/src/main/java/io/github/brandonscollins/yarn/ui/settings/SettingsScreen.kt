@@ -1,18 +1,21 @@
 package io.github.brandonscollins.yarn.ui.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -72,9 +75,15 @@ fun SettingsScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            Text("Auto sleep window", style = MaterialTheme.typography.titleMedium)
+            Text("Auto sleep window", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Any play inside the window arms a fresh timer.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Enabled", modifier = Modifier.weight(1f))
@@ -118,7 +127,8 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
-            Button(
+            // Destructive: outlined in the error colour rather than a filled gold pill.
+            OutlinedButton(
                 onClick = {
                     plexPrefs.accountToken = ""
                     plexPrefs.serverId = ""
@@ -133,8 +143,11 @@ fun SettingsScreen(
                         onSignedOut()
                     }
                 },
+                shape = CircleShape,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                contentPadding = PaddingValues(vertical = 14.dp),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Sign out") }
+            ) { Text("Sign out", style = MaterialTheme.typography.titleMedium) }
         }
     }
 }

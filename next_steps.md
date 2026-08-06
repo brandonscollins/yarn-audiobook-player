@@ -36,6 +36,12 @@ Book detail, Player, mini-player, Settings), adversarial review pass.
 - [ ] Player source resolution: local file if present, else stream
 - [ ] Download state badges in library
 
+## Design refresh — DONE (2026-08-06)
+
+Paper-and-ink identity: branded palette both modes (dark default, no dynamic
+color), Lora serif for titles/numerals, rounded shape scale, real icons, speed
+sheet and EQ/boost sheet, polish pass over every screen. See ADR-006.
+
 ## Milestone 5 — Polish (P1/P2)
 
 - [ ] Rewind-on-resume (fixed / smart) — P1, not yet built
@@ -43,12 +49,13 @@ Book detail, Player, mini-player, Settings), adversarial review pass.
       Equalizer presets + manual bands, re-attach on audio-session change). Continuous
       speed 0.5–3.0 in the engine too. Controls come with the design phase; the facade
       surface is on `PlayerController` (boostMb / eqEnabled / eqPreset / eqBandLevels /
-      eqBandInfo + setters).
+      eqBandInfo + setters). Controls shipped in the design phase: speed sheet and
+      EQ/boost sheet off the Player screen.
 - [ ] Android Auto
 - [ ] Search (local-first)
 - [ ] Recents / finished shelf / stats
-- [ ] Material icons for pause/±30s (needs material-icons-extended dep —
-      currently text/custom drawn)
+- [x] Material icons for pause/±30s (`material-icons-extended` added in the
+      design phase; `PauseIcon.kt` deleted)
 
 ## Parking lot
 

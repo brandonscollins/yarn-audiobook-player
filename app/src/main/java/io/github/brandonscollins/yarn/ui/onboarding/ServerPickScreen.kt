@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,11 +40,17 @@ fun ServerPickScreen(
 
             is ServerPickUiState.Loaded ->
                 Column {
-                    Text("Choose your server", modifier = Modifier.padding(bottom = 16.dp))
+                    Text(
+                        "Choose your server",
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    )
                     LazyColumn {
                         items(s.servers) { server ->
                             ListItem(
-                                headlineContent = { Text(server.name) },
+                                headlineContent = {
+                                    Text(server.name, style = MaterialTheme.typography.titleMedium)
+                                },
                                 modifier = Modifier.clickable { viewModel.choose(server) },
                             )
                         }

@@ -25,3 +25,7 @@ this is not.
 GPL-3.0. The Plex API integration approach is learned from (and in places
 derived from) [Chronicle](https://github.com/mattttvaughn/chronicle) by Matt
 Vaughn, GPL-3.0.
+
+The bundled display face is [Lora](https://fonts.google.com/specimen/Lora) by
+Cyreal, SIL Open Font License 1.1 — full text in
+[LORA-OFL.txt](LORA-OFL.txt).

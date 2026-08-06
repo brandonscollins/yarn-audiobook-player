@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -71,7 +71,7 @@ fun YarnApp(startDestination: String) {
                             onClick = {
                                 navController.navigate(Routes.LIBRARY) { launchSingleTop = true }
                             },
-                            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+                            icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
                             label = { Text("Library") },
                         )
                     }

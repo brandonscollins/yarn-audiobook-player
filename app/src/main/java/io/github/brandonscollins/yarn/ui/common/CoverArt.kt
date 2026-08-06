@@ -3,6 +3,7 @@ package io.github.brandonscollins.yarn.ui.common
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -23,7 +24,7 @@ fun thumbUri(
     return "${prefs.chosenServerUri}/photo/:/transcode?width=400&height=400&url=$encoded&X-Plex-Token=$token"
 }
 
-/** Thin progress bar under a cover — shared by Home's hero card and the Library grid. */
+/** Thin gold progress line under a cover — shared by Home's hero card and the Library listings. */
 @Composable
 fun ThinProgressBar(
     progress: Float,
@@ -31,6 +32,11 @@ fun ThinProgressBar(
 ) {
     LinearProgressIndicator(
         progress = { progress.coerceIn(0f, 1f) },
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = MaterialTheme.colorScheme.outlineVariant,
+        // No stop dot, no gap: a printed rule, not a Material 3 progress widget.
+        drawStopIndicator = {},
+        gapSize = 0.dp,
         modifier = modifier.fillMaxWidth().height(3.dp),
     )
 }

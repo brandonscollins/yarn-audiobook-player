@@ -50,6 +50,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    // Sanctioned in the design phase: real Pause/Replay30/Forward30/Bedtime/GraphicEq glyphs
+    // instead of text labels and a hand-drawn pause bar (see decisions.md).
+    implementation(libs.androidx.compose.material.icons.extended)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     implementation(libs.androidx.media3.exoplayer)

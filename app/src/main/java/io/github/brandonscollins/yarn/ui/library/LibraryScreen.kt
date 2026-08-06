@@ -21,11 +21,15 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ViewHeadline
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -128,7 +132,9 @@ fun LibraryScreen(
                 LazyColumn {
                     items(collections, key = { it.id }) { collection ->
                         ListItem(
-                            headlineContent = { Text(collection.title) },
+                            headlineContent = {
+                                Text(collection.title, style = MaterialTheme.typography.titleMedium)
+                            },
                             modifier = Modifier.clickable { selectedCollection = collection },
                         )
                     }
@@ -139,7 +145,15 @@ fun LibraryScreen(
             val booksInCollection by remember(collection.id) { viewModel.booksInCollection(collection.id) }
                 .collectAsState(initial = emptyList())
             Column(modifier = Modifier.fillMaxSize()) {
-                TextButton(onClick = { selectedCollection = null }) { Text("< ${collection.title}") }
+                TextButton(onClick = { selectedCollection = null }) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to collections",
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(collection.title, style = MaterialTheme.typography.titleMedium)
+                }
                 BookListing(booksInCollection, prefs, viewMode, sortMode, onOpenBook)
             }
         }
@@ -151,6 +165,14 @@ private fun viewModeLabel(mode: ViewMode) =
         ViewMode.Grid -> "Grid"
         ViewMode.List -> "List"
         ViewMode.ListCompact -> "List, no images"
+    }
+
+/** The icon shows the mode you're in; tapping cycles to the next one. */
+private fun viewModeIcon(mode: ViewMode) =
+    when (mode) {
+        ViewMode.Grid -> Icons.Filled.GridView
+        ViewMode.List -> Icons.AutoMirrored.Filled.ViewList
+        ViewMode.ListCompact -> Icons.Filled.ViewHeadline
     }
 
 private fun nextViewMode(mode: ViewMode) =
@@ -201,15 +223,15 @@ private fun LibraryTopBar(
         } else {
             Text(
                 "Library",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
-            TextButton(onClick = { onViewModeChange(nextViewMode(viewMode)) }) {
-                Text(viewModeLabel(viewMode))
+            IconButton(onClick = { onViewModeChange(nextViewMode(viewMode)) }) {
+                Icon(viewModeIcon(viewMode), contentDescription = viewModeLabel(viewMode))
             }
             Box {
-                TextButton(onClick = { sortMenuExpanded = true }) {
-                    Text(sortLabel(sortMode))
+                IconButton(onClick = { sortMenuExpanded = true }) {
+                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = sortLabel(sortMode))
                 }
                 DropdownMenu(expanded = sortMenuExpanded, onDismissRequest = { sortMenuExpanded = false }) {
                     SortMode.entries.forEach { mode ->
@@ -302,7 +324,7 @@ private fun BookGrid(
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     ) {
         items(rows, key = { it.book.id }) { row ->
             BookGridItem(row, prefs, onClick = { onOpenBook(row.book.id) })
@@ -322,8 +344,8 @@ private fun BookGridItem(
                 model = thumbUri(prefs, row.book.thumbPath),
                 contentDescription = null,
                 modifier =
-                    Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             )
             row.progress?.let {
                 ThinProgressBar(it, modifier = Modifier.align(Alignment.BottomCenter))
@@ -333,8 +355,15 @@ private fun BookGridItem(
             row.book.title,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Text(
+            row.book.author,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(top = 4.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -358,17 +387,17 @@ private fun BookListRow(
                 model = thumbUri(prefs, row.book.thumbPath),
                 contentDescription = null,
                 modifier =
-                    Modifier.size(40.dp).clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    Modifier.size(48.dp).clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(14.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 row.book.title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.titleMedium,
             )
             Text(
                 "${row.book.author} • ${formatDuration(row.book.durationMs)}",

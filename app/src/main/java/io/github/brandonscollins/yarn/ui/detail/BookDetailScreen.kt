@@ -3,6 +3,7 @@ package io.github.brandonscollins.yarn.ui.detail
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,11 +11,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -31,7 +34,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
@@ -56,7 +61,9 @@ fun BookDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(book?.title.orEmpty()) },
+                title = {
+                    Text(book?.title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -73,29 +80,50 @@ fun BookDetailScreen(
                             model = thumbUri(prefs, book?.thumbPath.orEmpty()),
                             contentDescription = null,
                             modifier =
-                                Modifier.size(140.dp).clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                Modifier.size(140.dp).clip(MaterialTheme.shapes.medium)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                         )
                         Column(
                             modifier = Modifier.padding(start = 16.dp),
                             verticalArrangement = Arrangement.Center,
                         ) {
-                            Text(book?.title.orEmpty(), style = MaterialTheme.typography.titleLarge)
-                            Text(book?.author.orEmpty(), style = MaterialTheme.typography.bodyMedium)
+                            Text(book?.title.orEmpty(), style = MaterialTheme.typography.headlineSmall)
+                            Text(
+                                book?.author.orEmpty(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
                         }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
                     Button(
                         onClick = {
                             playerViewModel.controller.playBook(viewModel.book.value?.id ?: return@Button)
                             onOpenPlayer()
                         },
+                        shape = CircleShape,
+                        contentPadding = PaddingValues(vertical = 16.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (position != null) "Resume" else "Play")
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            if (position != null) "Resume" else "Play",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Tracks", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "TRACKS",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        letterSpacing = 1.5.sp,
+                    )
                 }
             }
             items(tracks, key = { it.id }) { track ->
@@ -103,14 +131,17 @@ fun BookDetailScreen(
                     leadingContent = {
                         Text(
                             (track.index + 1).toString(),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(end = 8.dp),
                         )
                     },
-                    headlineContent = { Text(track.title) },
+                    headlineContent = { Text(track.title, style = MaterialTheme.typography.bodyLarge) },
                     trailingContent = {
                         Text(
                             formatDuration(track.durationMs),
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     },
                 )

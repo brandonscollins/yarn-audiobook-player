@@ -1,3 +1,7 @@
 <resources>
-    <style name="Theme.Yarn" parent="android:Theme.Material.NoActionBar" />
+    <!-- Dark-default paper-and-ink: the launch window matches the app's night page so there's no
+         white flash before Compose draws. -->
+    <style name="Theme.Yarn" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF17120E</item>
+    </style>
 </resources>

@@ -41,3 +41,24 @@ pause/interruption/track-change/audio-focus-loss; a WorkManager outbox syncs
 to Plex with retry; furthest-ahead wins on conflict.
 **Why:** "Never lose my place" is the app's entire quality bar; server sync
 is inherently best-effort, so it can't be the source of truth.
+
+## ADR-006 — Identity: paper-and-ink palette, no dynamic color (2026-08-06)
+
+**Decision:** A fixed branded palette in both modes — warm cream paper
+(`#FAF5EA`) with near-black ink (`#1C1714`) in light, warm brown-black
+(`#17120E`) with cream (`#F2E7D2`) in dark, and ONE antique gold (`#B8801C`)
+shared by both. Dark is unconditional default (PRD), not `isSystemInDarkTheme()`.
+Serif (Lora, one variable `.ttf` in `res/font/`) on display/headline/title;
+platform sans stays on body/label. Shape scale 8/12/16/24/32 dp.
+**Why:** Material You dynamic color made Yarn look like every other Material
+app (specifically: like Chronicle). The gold is a single value because
+`#B8801C` is the one that clears 3:1 against cream *and* 4.5:1 against the dark
+page; gold is for fills, indicators and large text only, ink/cream for small
+text. `PaletteContrastTest` locks those ratios so a later "nicer gold" can't
+quietly break legibility.
+**Consequence:** Two sanctioned dependencies added — `material-icons-extended`
+(real Pause/Replay30/Forward30/Bedtime/GraphicEq/Sort glyphs, retiring the
+hand-drawn `PauseGlyph` and the "-30"/"+30" text buttons) and the font resource.
+Nothing else. Icons-extended is a big artifact and the debug APK is unminified
+(~70 MB); turning on R8 for release will strip the unused glyphs when release
+builds start mattering.

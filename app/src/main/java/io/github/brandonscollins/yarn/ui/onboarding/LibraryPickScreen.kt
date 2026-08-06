@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,11 +40,17 @@ fun LibraryPickScreen(
 
             is LibraryPickUiState.Loaded ->
                 Column {
-                    Text("Choose your audiobook library", modifier = Modifier.padding(bottom = 16.dp))
+                    Text(
+                        "Choose your audiobook library",
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    )
                     LazyColumn {
                         items(s.libraries) { library ->
                             ListItem(
-                                headlineContent = { Text(library.title) },
+                                headlineContent = {
+                                    Text(library.title, style = MaterialTheme.typography.titleMedium)
+                                },
                                 modifier = Modifier.clickable { viewModel.choose(library) },
                             )
                         }
