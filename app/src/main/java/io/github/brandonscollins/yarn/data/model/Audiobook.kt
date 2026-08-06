@@ -15,4 +15,6 @@ data class Audiobook(
     val lastViewedAt: Long,
     val viewCount: Int,
     val isCached: Boolean = false,
+    /** Plex `originallyAvailableAt` (release date), falling back to `year`. 0 = unknown. */
+    val publishedAtEpochMs: Long = 0,
 )

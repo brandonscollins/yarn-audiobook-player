@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import io.github.brandonscollins.yarn.data.local.MIGRATION_1_2
+import io.github.brandonscollins.yarn.data.local.MIGRATION_2_3
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
 import io.github.brandonscollins.yarn.settings.PlexPrefs
 import kotlinx.coroutines.Dispatchers
@@ -78,7 +79,7 @@ object PlexGraph {
     @Synchronized
     fun db(context: Context): YarnDatabase =
         db ?: Room.databaseBuilder(context.applicationContext, YarnDatabase::class.java, "yarn.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
             .also { db = it }
 

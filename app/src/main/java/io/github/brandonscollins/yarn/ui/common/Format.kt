@@ -14,3 +14,13 @@ fun formatMmSs(ms: Long): String {
     val totalSec = ms.coerceAtLeast(0) / 1000
     return "%d:%02d".format(totalSec / 60, totalSec % 60)
 }
+
+private val LEADING_ARTICLES = listOf("The ", "A ", "An ")
+
+/** Strips a leading "The "/"A "/"An " — used for alphabetical sort and A-Z rail bucketing. */
+fun sortTitle(title: String): String {
+    for (article in LEADING_ARTICLES) {
+        if (title.startsWith(article, ignoreCase = true)) return title.substring(article.length)
+    }
+    return title
+}

@@ -24,6 +24,10 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE id = :bookId")
     fun getBook(bookId: Int): Flow<Audiobook?>
 
+    /** Local-only title/author search. SQLite's LIKE is case-insensitive for ASCII by default. */
+    @Query("SELECT * FROM books WHERE title LIKE '%' || :query || '%' OR author LIKE '%' || :query || '%'")
+    fun search(query: String): Flow<List<Audiobook>>
+
     @Upsert
     suspend fun upsertAll(books: List<Audiobook>)
 }

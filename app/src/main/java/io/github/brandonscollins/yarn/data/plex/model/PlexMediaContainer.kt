@@ -41,6 +41,9 @@ data class PlexMetadata(
     val lastViewedAt: Long = 0,
     val viewCount: Int = 0,
     val viewOffset: Long = 0,
+    /** "YYYY-MM-DD" release date on the album; preferred over [year] when present. */
+    val originallyAvailableAt: String = "",
+    val year: Int = 0,
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),
     @SerialName("Genre") val genres: List<PlexTag> = emptyList(),
     @SerialName("Collection") val collections: List<PlexTag> = emptyList(),

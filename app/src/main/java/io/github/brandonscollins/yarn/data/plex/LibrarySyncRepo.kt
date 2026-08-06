@@ -8,6 +8,8 @@ import io.github.brandonscollins.yarn.data.model.Collection as BookCollection
 import io.github.brandonscollins.yarn.data.plex.model.PlexMetadata
 import io.github.brandonscollins.yarn.settings.PlexPrefs
 import kotlinx.coroutines.flow.first
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 /** Audiobook libraries are Plex *music* libraries, whose section type is "artist". */
 private const val LIBRARY_TYPE_MUSIC = "artist"
@@ -99,7 +101,22 @@ private fun PlexMetadata.toAudiobook(
     lastViewedAt = lastViewedAt,
     viewCount = viewCount,
     isCached = isCached,
+    publishedAtEpochMs = publishedAtEpochMs(originallyAvailableAt, year),
 )
+
+/** [originallyAvailableAt] is "YYYY-MM-DD"; [year] is a bare release year. Either can be blank/0. */
+private fun publishedAtEpochMs(
+    originallyAvailableAt: String,
+    year: Int,
+): Long {
+    runCatching { LocalDate.parse(originallyAvailableAt) }.getOrNull()?.let {
+        return it.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    }
+    if (year > 0) {
+        return LocalDate.of(year, 1, 1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    }
+    return 0L
+}
 
 private fun PlexMetadata.toTrack(
     id: Int,

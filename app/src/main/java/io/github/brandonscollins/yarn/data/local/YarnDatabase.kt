@@ -18,7 +18,7 @@ import io.github.brandonscollins.yarn.data.model.Track
         BookCollectionCrossRef::class,
         PlaybackPosition::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class YarnDatabase : RoomDatabase() {
@@ -41,6 +41,16 @@ val MIGRATION_1_2 =
             db.execSQL(
                 "ALTER TABLE playback_positions " +
                     "ADD COLUMN finishedPending INTEGER NOT NULL DEFAULT 0",
+            )
+        }
+    }
+
+/** Adds `publishedAtEpochMs` (0 = unknown) for the "recently published" sort. */
+val MIGRATION_2_3 =
+    object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE books ADD COLUMN publishedAtEpochMs INTEGER NOT NULL DEFAULT 0",
             )
         }
     }
