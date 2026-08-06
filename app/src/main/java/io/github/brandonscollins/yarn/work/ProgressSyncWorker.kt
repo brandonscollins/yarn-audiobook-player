@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -75,8 +76,14 @@ class ProgressSyncWorker(
         const val STATE_PAUSED = "paused"
         const val STATE_STOPPED = "stopped"
         private const val NO_BOOK = -1
+        private const val UNIQUE_WORK = "progress_sync"
 
-        /** [finishedBookId] marks that book finished on the server; the caller decides when. */
+        /**
+         * [finishedBookId] marks that book finished on the server; the caller decides when.
+         *
+         * Unique work with REPLACE debounces the ledger's ~10s tick into a single pending job —
+         * the worker drains every unsynced row anyway, so a replaced job loses nothing.
+         */
         fun enqueue(
             context: Context,
             state: String = STATE_PAUSED,
@@ -95,7 +102,8 @@ class ProgressSyncWorker(
                         ),
                     )
                     .build()
-            WorkManager.getInstance(context).enqueue(request)
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.REPLACE, request)
         }
     }
 }
