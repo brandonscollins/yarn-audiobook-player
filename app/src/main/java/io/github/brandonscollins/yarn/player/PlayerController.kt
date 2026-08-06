@@ -15,6 +15,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import io.github.brandonscollins.yarn.data.model.Track
+import io.github.brandonscollins.yarn.data.plex.LibrarySyncRepo
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.settings.PlexPrefs
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +44,7 @@ class PlayerController(
     private val appContext = context.applicationContext
     private val plexPrefs = PlexGraph.prefs(appContext)
     private val db = PlexGraph.db(appContext)
+    private val syncRepo = LibrarySyncRepo(plexPrefs, PlexGraph.api(appContext), db)
 
     private var controller: MediaController? = null
     private var pollJob: Job? = null
@@ -87,7 +89,17 @@ class PlayerController(
     /** Loads the book's tracks from Room and starts at the furthest-ahead known position. */
     fun playBook(bookId: Int) {
         scope.launch {
-            val tracks = db.trackDao().getTracksForBook(bookId).first()
+            // The stream URIs below are built from the chosen connection, so the race has to have
+            // settled first (gotcha #3); with no reachable server there is nothing to play.
+            PlexGraph.connections(appContext).ensureConnected()
+            if (plexPrefs.chosenServerUri.isEmpty()) return@launch
+            // A book opened for the first time may still have its track sync in flight — without
+            // this, tapping Play a beat too early was a silent no-op.
+            val tracks =
+                db.trackDao().getTracksForBook(bookId).first().ifEmpty {
+                    runCatching { syncRepo.syncTracks(bookId) }
+                    db.trackDao().getTracksForBook(bookId).first()
+                }
             if (tracks.isEmpty()) return@launch
             val resume = resumePoint(tracks, db.positionDao().getPosition(bookId))
             val items = tracks.map { it.toMediaItem(bookId, plexPrefs) }

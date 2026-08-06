@@ -61,6 +61,10 @@ class PlexConnectionManager(
     private val _chosenUri = MutableStateFlow(prefs.chosenServerUri)
     val chosenUri: StateFlow<String> = _chosenUri.asStateFlow()
 
+    /** Whether the race has run in *this* process. A persisted URI proves nothing about now. */
+    @Volatile
+    private var raced = false
+
     /** Re-runs the race. Returns the winning URI, or null if no candidate answered. */
     suspend fun connect(): String? {
         val winner =
@@ -71,10 +75,15 @@ class PlexConnectionManager(
             api.serverUrl = winner
             prefs.chosenServerUri = winner
             _chosenUri.value = winner
+            raced = true
         }
         return winner
     }
 
-    /** Races only if we don't already have a connection worth trying. */
-    suspend fun ensureConnected(): Boolean = chosenUri.value.isNotEmpty() || connect() != null
+    /**
+     * Races once per process. The persisted URI is a warm-start hint, not evidence: the LAN address
+     * that won last night is unreachable on cellular this morning, and treating it as connected
+     * meant the race never re-ran and the app never found the relay (gotcha #3).
+     */
+    suspend fun ensureConnected(): Boolean = raced || connect() != null
 }

@@ -151,7 +151,6 @@ class PlaybackService : MediaSessionService() {
             )
             if (isPlaying) {
                 startLedgerTick()
-                maybeArmSleepWindow()
             } else {
                 tickJob?.cancel()
                 pausedAtElapsedMs = SystemClock.elapsedRealtime()
@@ -167,6 +166,12 @@ class PlaybackService : MediaSessionService() {
             if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS) {
                 writeLedger(ProgressSyncWorker.STATE_PAUSED)
             }
+            // Sleep-window arm rule lives here rather than in onIsPlayingChanged: isPlaying also
+            // goes false→true on every buffering stall, and a stall over a Plex stream must not
+            // silently restart a running timer. playWhenReady only moves when playback is actually
+            // asked to start or stop — by the UI, the notification, a media button or bluetooth,
+            // all of which reach Player.play() through the session, so one hook covers them all.
+            if (playWhenReady) maybeArmSleepWindow()
         }
 
         override fun onMediaItemTransition(

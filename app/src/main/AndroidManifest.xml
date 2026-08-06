@@ -7,11 +7,15 @@
     <!-- Without this the media notification is silently not shown on 33+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- usesCleartextTraffic: Plex's local connection candidates are plain
+         http://192.168.x.x:32400, and cleartext is blocked by default from API 29 up — without
+         this the whole LAN half of the connection race (gotcha #3) can never win. -->
     <application
         android:allowBackup="true"
         android:label="@string/app_name"
         android:theme="@style/Theme.Yarn"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
