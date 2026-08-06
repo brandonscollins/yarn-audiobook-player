@@ -3,8 +3,11 @@ package io.github.brandonscollins.yarn.data.plex
 import android.content.Context
 import androidx.room.Room
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import io.github.brandonscollins.yarn.data.local.MIGRATION_1_2
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
 import io.github.brandonscollins.yarn.settings.PlexPrefs
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -75,6 +78,7 @@ object PlexGraph {
     @Synchronized
     fun db(context: Context): YarnDatabase =
         db ?: Room.databaseBuilder(context.applicationContext, YarnDatabase::class.java, "yarn.db")
+            .addMigrations(MIGRATION_1_2)
             .build()
             .also { db = it }
 
@@ -85,4 +89,18 @@ object PlexGraph {
     @Synchronized
     fun connections(context: Context): PlexConnectionManager =
         connections ?: PlexConnectionManager(prefs(context), api(context)).also { connections = it }
+
+    /**
+     * Sign-out. Clearing [PlexPrefs] alone left this object holding the old session — a stale
+     * `serverUrl`, a connection manager that thought it had already raced — and the previous
+     * account's books and positions still in Room. Call after the prefs are cleared.
+     */
+    suspend fun reset(context: Context) {
+        val database = db(context)
+        withContext(Dispatchers.IO) { database.clearAllTables() }
+        synchronized(this) {
+            api?.serverUrl = PLACEHOLDER_URL
+            connections = null
+        }
+    }
 }

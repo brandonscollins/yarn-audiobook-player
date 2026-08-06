@@ -32,7 +32,6 @@ class ProgressSyncWorker(
         val api = PlexGraph.api(applicationContext)
         val db = PlexGraph.db(applicationContext)
         val state = inputData.getString(KEY_STATE) ?: STATE_PAUSED
-        val finishedBookId = inputData.getInt(KEY_FINISHED_BOOK_ID, NO_BOOK)
 
         // Timeline updates silently no-op unless a playQueue was opened for the book first
         // (CLAUDE.md gotcha #1). Once per book per run; a redundant POST is harmless.
@@ -56,10 +55,12 @@ class ProgressSyncWorker(
                     playState = state,
                     playbackTime = position.positionMs,
                 )
-                db.positionDao().upsert(position.copy(syncedToPlex = true))
-            }
-            if (finishedBookId != NO_BOOK) {
-                api.mediaService.scrobble(finishedBookId.toString())
+                // The doubled duration above means Plex will never mark this finished on its own,
+                // so the ledger's explicit verdict is the only thing that ever does (gotcha #2).
+                if (position.finishedPending) {
+                    api.mediaService.scrobble(position.bookId.toString())
+                }
+                db.positionDao().markSynced(position.bookId, position.updatedAtEpochMs)
             }
             Result.success()
         } catch (cancellation: CancellationException) {
@@ -71,23 +72,19 @@ class ProgressSyncWorker(
 
     companion object {
         const val KEY_STATE = "state"
-        const val KEY_FINISHED_BOOK_ID = "finished_book_id"
         const val STATE_PLAYING = "playing"
         const val STATE_PAUSED = "paused"
         const val STATE_STOPPED = "stopped"
-        private const val NO_BOOK = -1
         private const val UNIQUE_WORK = "progress_sync"
 
         /**
-         * [finishedBookId] marks that book finished on the server; the caller decides when.
-         *
-         * Unique work with REPLACE debounces the ledger's ~10s tick into a single pending job —
-         * the worker drains every unsynced row anyway, so a replaced job loses nothing.
+         * Unique work with REPLACE debounces the ledger's ~10s tick into a single pending job — the
+         * worker drains every unsynced row anyway, and the finished verdict rides on the row rather
+         * than in this input data, so a replaced job loses nothing.
          */
         fun enqueue(
             context: Context,
             state: String = STATE_PAUSED,
-            finishedBookId: Int = NO_BOOK,
         ) {
             val request =
                 OneTimeWorkRequestBuilder<ProgressSyncWorker>()
@@ -95,12 +92,7 @@ class ProgressSyncWorker(
                         Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
                     )
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-                    .setInputData(
-                        workDataOf(
-                            KEY_STATE to state,
-                            KEY_FINISHED_BOOK_ID to finishedBookId,
-                        ),
-                    )
+                    .setInputData(workDataOf(KEY_STATE to state))
                     .build()
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.REPLACE, request)

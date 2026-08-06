@@ -21,6 +21,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -29,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.player.PlayerPrefs
+import kotlinx.coroutines.launch
 
 private fun minutesOfDayToText(minutes: Int) = "%02d:%02d".format(minutes / 60, minutes % 60)
 
@@ -48,6 +50,7 @@ fun SettingsScreen(
     onSignedOut: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val playerPrefs = remember(context) { PlayerPrefs(context) }
     val plexPrefs = remember(context) { PlexGraph.prefs(context) }
 
@@ -123,7 +126,12 @@ fun SettingsScreen(
                     plexPrefs.libraryId = ""
                     plexPrefs.chosenServerUri = ""
                     plexPrefs.serverConnections = emptyList()
-                    onSignedOut()
+                    // Prefs alone left the cached library, the ledger and the live singletons
+                    // behind; wipe them before the login screen can start a new session.
+                    scope.launch {
+                        PlexGraph.reset(context)
+                        onSignedOut()
+                    }
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Sign out") }

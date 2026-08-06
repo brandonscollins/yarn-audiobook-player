@@ -15,4 +15,10 @@ data class PlaybackPosition(
     val positionMs: Long,
     val updatedAtEpochMs: Long,
     val syncedToPlex: Boolean = false,
+    /**
+     * "This book finished and Plex hasn't been told yet." Lives on the row rather than in
+     * WorkManager input data so the signal survives `ExistingWorkPolicy.REPLACE` dropping a
+     * pending job; the outbox clears it once `/:/scrobble` is accepted.
+     */
+    val finishedPending: Boolean = false,
 )

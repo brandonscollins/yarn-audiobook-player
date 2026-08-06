@@ -68,7 +68,32 @@ class ResumeTest {
         assertEquals(ResumePoint(trackIndex = 1, positionMs = 7_000), point)
     }
 
+    /** Three ten-minute tracks = a thirty-minute book; the finished window is the last two minutes. */
+    @Test
+    fun `the finished window is the last two minutes of the book`() {
+        val threeTracks = tracks(0, 0, 0)
+        val lastTrack = threeTracks[2].id
+
+        // 27:00 — three minutes left, not done.
+        assertEquals(false, isBookFinished(threeTracks, THIRTY_MIN, lastTrack, 7 * 60_000L))
+        // 28:00 — exactly two minutes left, done (Chronicle compares with <=).
+        assertEquals(true, isBookFinished(threeTracks, THIRTY_MIN, lastTrack, 8 * 60_000L))
+        // Deep into the last track.
+        assertEquals(true, isBookFinished(threeTracks, THIRTY_MIN, lastTrack, TEN_MIN))
+        // The same offset in an earlier track is nowhere near the end.
+        assertEquals(false, isBookFinished(threeTracks, THIRTY_MIN, threeTracks[0].id, TEN_MIN))
+    }
+
+    @Test
+    fun `an unknown track or unknown duration is never finished`() {
+        val threeTracks = tracks(0, 0, 0)
+
+        assertEquals(false, isBookFinished(threeTracks, THIRTY_MIN, 999, TEN_MIN))
+        assertEquals(false, isBookFinished(threeTracks, 0, threeTracks[2].id, TEN_MIN))
+    }
+
     private companion object {
         const val TEN_MIN = 600_000L
+        const val THIRTY_MIN = 3 * TEN_MIN
     }
 }
