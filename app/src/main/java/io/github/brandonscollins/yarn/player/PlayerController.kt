@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.os.bundleOf
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -60,6 +61,9 @@ class PlayerController(
 
     private val _speed = MutableStateFlow(1f)
     val speed: StateFlow<Float> = _speed.asStateFlow()
+
+    private val _durationMs = MutableStateFlow(0L)
+    val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
     val sleepRemainingMs: StateFlow<Long?> = SleepState.remainingMs
 
@@ -119,6 +123,12 @@ class PlayerController(
         controller?.setPlaybackSpeed(speed)
     }
 
+    /** Absolute seek within the current track — the Player screen's scrub slider. */
+    fun seekTo(positionMs: Long) = controller?.seekTo(positionMs) ?: Unit
+
+    /** Jump to a track (chapters sheet), starting at its beginning. */
+    fun seekToTrack(trackIndex: Int) = controller?.seekTo(trackIndex, 0L) ?: Unit
+
     fun armSleep(durationMs: Long) {
         controller?.sendCustomCommand(
             SessionCommand(COMMAND_ARM_SLEEP, Bundle.EMPTY),
@@ -161,6 +171,7 @@ class PlayerController(
         _positionMs.value = c.currentPosition.coerceAtLeast(0)
         _isPlaying.value = c.isPlaying
         _speed.value = c.playbackParameters.speed
+        _durationMs.value = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L
     }
 }
 

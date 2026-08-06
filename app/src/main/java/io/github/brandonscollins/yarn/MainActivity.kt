@@ -3,25 +3,29 @@ package io.github.brandonscollins.yarn
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.github.brandonscollins.yarn.data.plex.PlexGraph
+import io.github.brandonscollins.yarn.ui.nav.Routes
+import io.github.brandonscollins.yarn.ui.nav.YarnApp
+import io.github.brandonscollins.yarn.ui.theme.YarnTheme
 
-/** Placeholder scaffold. Real navigation/screens land in later phases. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val prefs = PlexGraph.prefs(this)
+        val startDestination =
+            when {
+                prefs.accountToken.isEmpty() -> Routes.LOGIN
+                prefs.serverId.isEmpty() -> Routes.SERVERS
+                prefs.libraryId.isEmpty() -> Routes.LIBRARIES
+                else -> Routes.HOME
+            }
         setContent {
-            MaterialTheme {
+            YarnTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Yarn")
-                    }
+                    YarnApp(startDestination = startDestination)
                 }
             }
         }
