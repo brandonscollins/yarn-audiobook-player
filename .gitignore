@@ -8,6 +8,7 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+.kotlin/
 
 # IDE
 .idea/

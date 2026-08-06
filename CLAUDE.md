@@ -54,6 +54,28 @@ every pause/interruption/track-change/focus-loss. Plex sync is best-effort
 with retry via WorkManager. Conflict resolution: furthest-ahead wins. If a
 change risks this invariant, it's wrong.
 
+## Building on this Mac
+
+Headless toolchain, no Android Studio. `local.properties` (gitignored)
+points `sdk.dir` at the cmdline-tools SDK — regenerate it with the line
+below if missing.
+
+- JDK 17 via `brew install openjdk@17` (formula, not `--cask temurin@17` —
+  the cask's installer needs interactive sudo, which isn't available
+  headless). `JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home`.
+  Not symlinked into `/opt/homebrew/opt/openjdk` (keg-only); export
+  `JAVA_HOME` and prepend `$JAVA_HOME/bin` to `PATH` before any Gradle
+  invocation.
+- Android SDK via `brew install --cask android-commandlinetools`, root at
+  `/opt/homebrew/share/android-commandlinetools` (`ANDROID_HOME`/
+  `sdk.dir`). Installed: `platform-tools`, `platforms;android-35`,
+  `build-tools;35.0.0` (Gradle also auto-installed `build-tools;34.0.0` as
+  an AGP dependency). Licenses accepted via `yes | sdkmanager --licenses`.
+- Gradle itself (`brew install gradle`) is only used to run `gradle
+  wrapper --gradle-version 8.9` once; the project uses `./gradlew`
+  (wrapper pinned to 8.9), never the brew-installed `gradle`.
+- `./gradlew assembleDebug` is the build gate.
+
 ## Accounts / machines
 
 - GitHub: repo lives under **brandonscollins** (personal). On machines where
