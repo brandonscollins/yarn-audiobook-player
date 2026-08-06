@@ -1,0 +1,101 @@
+package io.github.brandonscollins.yarn.work
+
+import android.content.Context
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
+import androidx.work.workDataOf
+import io.github.brandonscollins.yarn.data.plex.PlexGraph
+import io.github.brandonscollins.yarn.data.plex.mediaItemUri
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
+import java.util.concurrent.TimeUnit
+
+/**
+ * Drains the position ledger to Plex. Best-effort with retry — local Room rows are the truth
+ * (CLAUDE.md "the one invariant"), so a row is marked synced only after the server accepts it.
+ */
+class ProgressSyncWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val prefs = PlexGraph.prefs(applicationContext)
+        if (prefs.accountToken.isEmpty() || prefs.serverId.isEmpty()) return Result.failure()
+        if (!PlexGraph.connections(applicationContext).ensureConnected()) return Result.retry()
+
+        val api = PlexGraph.api(applicationContext)
+        val db = PlexGraph.db(applicationContext)
+        val state = inputData.getString(KEY_STATE) ?: STATE_PAUSED
+        val finishedBookId = inputData.getInt(KEY_FINISHED_BOOK_ID, NO_BOOK)
+
+        // Timeline updates silently no-op unless a playQueue was opened for the book first
+        // (CLAUDE.md gotcha #1). Once per book per run; a redundant POST is harmless.
+        val queueStarted = mutableSetOf<Int>()
+
+        return try {
+            for (position in db.positionDao().getUnsynced()) {
+                val track =
+                    db.trackDao().getTracksForBook(position.bookId).first()
+                        .firstOrNull { it.id == position.trackId } ?: continue
+                if (queueStarted.add(position.bookId)) {
+                    api.mediaService.startPlayQueue(mediaItemUri(prefs.serverId, position.bookId))
+                }
+                api.mediaService.progress(
+                    ratingKey = position.trackId.toString(),
+                    key = "/library/metadata/${position.trackId}",
+                    timeMs = position.positionMs,
+                    // Doubled duration keeps Plex's 90%-is-finished rule from ever tripping
+                    // (CLAUDE.md gotcha #2); finished is reported explicitly via scrobble.
+                    duration = track.durationMs * 2,
+                    playState = state,
+                    playbackTime = position.positionMs,
+                )
+                db.positionDao().upsert(position.copy(syncedToPlex = true))
+            }
+            if (finishedBookId != NO_BOOK) {
+                api.mediaService.scrobble(finishedBookId.toString())
+            }
+            Result.success()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (t: Throwable) {
+            Result.retry()
+        }
+    }
+
+    companion object {
+        const val KEY_STATE = "state"
+        const val KEY_FINISHED_BOOK_ID = "finished_book_id"
+        const val STATE_PLAYING = "playing"
+        const val STATE_PAUSED = "paused"
+        const val STATE_STOPPED = "stopped"
+        private const val NO_BOOK = -1
+
+        /** [finishedBookId] marks that book finished on the server; the caller decides when. */
+        fun enqueue(
+            context: Context,
+            state: String = STATE_PAUSED,
+            finishedBookId: Int = NO_BOOK,
+        ) {
+            val request =
+                OneTimeWorkRequestBuilder<ProgressSyncWorker>()
+                    .setConstraints(
+                        Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
+                    )
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .setInputData(
+                        workDataOf(
+                            KEY_STATE to state,
+                            KEY_FINISHED_BOOK_ID to finishedBookId,
+                        ),
+                    )
+                    .build()
+            WorkManager.getInstance(context).enqueue(request)
+        }
+    }
+}

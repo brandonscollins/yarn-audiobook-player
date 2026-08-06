@@ -18,6 +18,10 @@ interface PlexMediaService {
         @Path("url", encoded = true) url: String,
     ): Response<MediaContainerResponse>
 
+    /** Library sections. Audiobook libraries are music libraries, section type "artist". */
+    @GET("/library/sections")
+    suspend fun retrieveLibraries(): MediaContainerResponse
+
     /** Books. Audiobooks are Plex music albums, `type=9` (CLAUDE.md gotcha #5). */
     @GET("/library/sections/{libraryId}/all?type=$MEDIA_TYPE_ALBUM")
     suspend fun retrieveAllAlbums(
@@ -65,6 +69,9 @@ interface PlexMediaService {
         @Query("time") timeMs: Long,
         @Query("duration") duration: Long,
         @Query("state") playState: String,
+        /** Chronicle sends `hasMDE=1` on every timeline call; Plex is happier with it present. */
+        @Query("hasMDE") hasMde: Int = 1,
+        @Query("playbackTime") playbackTime: Long = 0,
         @Query("identifier") identifier: String = "com.plexapp.plugins.library",
         @Query("playQueueItemId") playQueueItemId: Long = 0,
     )
