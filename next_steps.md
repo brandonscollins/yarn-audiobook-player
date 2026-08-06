@@ -39,7 +39,11 @@ Book detail, Player, mini-player, Settings), adversarial review pass.
 ## Milestone 5 — Polish (P1/P2)
 
 - [ ] Rewind-on-resume (fixed / smart) — P1, not yet built
-- [ ] Volume boost + EQ
+- [x] Volume boost + EQ — engine done (`AudioEffects.kt`: LoudnessEnhancer 0–1200 mB,
+      Equalizer presets + manual bands, re-attach on audio-session change). Continuous
+      speed 0.5–3.0 in the engine too. Controls come with the design phase; the facade
+      surface is on `PlayerController` (boostMb / eqEnabled / eqPreset / eqBandLevels /
+      eqBandInfo + setters).
 - [ ] Android Auto
 - [ ] Search (local-first)
 - [ ] Recents / finished shelf / stats

@@ -29,11 +29,34 @@ class PlayerPrefs(context: Context) {
         get() = prefs.getInt(KEY_DEFAULT_DURATION, 15)
         set(value) = prefs.edit().putInt(KEY_DEFAULT_DURATION, value).apply()
 
+    /** Audio effects — applied whenever [AudioEffects] (re)attaches to an audio session. */
+    var boostMb: Int
+        get() = prefs.getInt(KEY_BOOST_MB, 0)
+        set(value) = prefs.edit().putInt(KEY_BOOST_MB, value).apply()
+
+    var eqEnabled: Boolean
+        get() = prefs.getBoolean(KEY_EQ_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_EQ_ENABLED, value).apply()
+
+    /** Index into the device's preset list, or [EQ_PRESET_CUSTOM] for [eqBandLevels]. */
+    var eqPreset: Int
+        get() = prefs.getInt(KEY_EQ_PRESET, EQ_PRESET_CUSTOM)
+        set(value) = prefs.edit().putInt(KEY_EQ_PRESET, value).apply()
+
+    /** Per-band levels in millibels; empty until the user touches a band. */
+    var eqBandLevels: ShortArray
+        get() = decodeBandLevels(prefs.getString(KEY_EQ_BANDS, "").orEmpty())
+        set(value) = prefs.edit().putString(KEY_EQ_BANDS, encodeBandLevels(value)).apply()
+
     private companion object {
         const val KEY_SPEED = "speed"
         const val KEY_AUTO_SLEEP = "auto_sleep_enabled"
         const val KEY_WINDOW_START = "window_start_minutes"
         const val KEY_WINDOW_END = "window_end_minutes"
         const val KEY_DEFAULT_DURATION = "default_duration_min"
+        const val KEY_BOOST_MB = "boost_mb"
+        const val KEY_EQ_ENABLED = "eq_enabled"
+        const val KEY_EQ_PRESET = "eq_preset"
+        const val KEY_EQ_BANDS = "eq_band_levels"
     }
 }

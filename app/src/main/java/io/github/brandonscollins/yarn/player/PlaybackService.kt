@@ -10,6 +10,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -33,6 +34,16 @@ const val COMMAND_ARM_SLEEP = "yarn.ARM_SLEEP"
 const val COMMAND_CANCEL_SLEEP = "yarn.CANCEL_SLEEP"
 const val KEY_SLEEP_DURATION_MS = "yarn.sleepDurationMs"
 
+const val COMMAND_SET_BOOST = "yarn.SET_BOOST"
+const val COMMAND_SET_EQ_ENABLED = "yarn.SET_EQ_ENABLED"
+const val COMMAND_SET_EQ_PRESET = "yarn.SET_EQ_PRESET"
+const val COMMAND_SET_EQ_BAND = "yarn.SET_EQ_BAND"
+const val KEY_BOOST_MB = "yarn.boostMb"
+const val KEY_EQ_ENABLED = "yarn.eqEnabled"
+const val KEY_EQ_PRESET = "yarn.eqPreset"
+const val KEY_EQ_BAND = "yarn.eqBand"
+const val KEY_EQ_BAND_LEVEL_MB = "yarn.eqBandLevelMb"
+
 /** Insurance against process death: ledger tick while actively playing. */
 private const val LEDGER_TICK_MS = 10_000L
 
@@ -55,6 +66,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var prefs: PlayerPrefs
     private lateinit var ledger: PositionLedger
     private lateinit var sleepTimer: SleepTimer
+    private lateinit var effects: AudioEffects
     private var session: MediaSession? = null
 
     /** Player-thread scope: the sleep timer and the ledger tick both touch the player. */
@@ -79,9 +91,22 @@ class PlaybackService : MediaSessionService() {
                 )
                 .setHandleAudioBecomingNoisy(true)
                 .build()
-        player.setPlaybackSpeed(prefs.speed)
+        player.setPlaybackSpeed(coerceSpeed(prefs.speed))
         player.addListener(PlayerEvents())
         sleepTimer = SleepTimer(player, playerScope)
+        effects = AudioEffects(prefs)
+        // The session id changes when the AudioTrack is recreated, so the effects follow it rather
+        // than being created once. Attaching eagerly too means an EQ screen has band info before
+        // the first play (the id is unset until then on some devices, which attach() ignores).
+        player.addAnalyticsListener(
+            object : AnalyticsListener {
+                override fun onAudioSessionIdChanged(
+                    eventTime: AnalyticsListener.EventTime,
+                    audioSessionId: Int,
+                ) = effects.attach(audioSessionId)
+            },
+        )
+        effects.attach(player.audioSessionId)
         session = MediaSession.Builder(this, player).setCallback(Callback()).build()
     }
 
@@ -99,6 +124,8 @@ class PlaybackService : MediaSessionService() {
         playerScope.cancel()
         session?.release()
         session = null
+        // Effects hold the player's audio session — release them before the player goes away.
+        effects.release()
         player.release()
         super.onDestroy()
     }
@@ -214,6 +241,10 @@ class PlaybackService : MediaSessionService() {
                     MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                         .add(SessionCommand(COMMAND_ARM_SLEEP, Bundle.EMPTY))
                         .add(SessionCommand(COMMAND_CANCEL_SLEEP, Bundle.EMPTY))
+                        .add(SessionCommand(COMMAND_SET_BOOST, Bundle.EMPTY))
+                        .add(SessionCommand(COMMAND_SET_EQ_ENABLED, Bundle.EMPTY))
+                        .add(SessionCommand(COMMAND_SET_EQ_PRESET, Bundle.EMPTY))
+                        .add(SessionCommand(COMMAND_SET_EQ_BAND, Bundle.EMPTY))
                         .build(),
                 )
                 .build()
@@ -233,6 +264,25 @@ class PlaybackService : MediaSessionService() {
                     sleepTimer.cancel()
                     // Manual cancel means "not tonight" — no auto re-arm this session.
                     sleepSuppressed = true
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+                COMMAND_SET_BOOST -> {
+                    effects.setBoost(args.getInt(KEY_BOOST_MB))
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+                COMMAND_SET_EQ_ENABLED -> {
+                    effects.setEqEnabled(args.getBoolean(KEY_EQ_ENABLED))
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+                COMMAND_SET_EQ_PRESET -> {
+                    effects.setPreset(args.getInt(KEY_EQ_PRESET, EQ_PRESET_CUSTOM))
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+                COMMAND_SET_EQ_BAND -> {
+                    effects.setBand(
+                        args.getInt(KEY_EQ_BAND),
+                        args.getShort(KEY_EQ_BAND_LEVEL_MB),
+                    )
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 else ->

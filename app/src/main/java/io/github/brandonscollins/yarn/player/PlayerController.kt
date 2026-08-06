@@ -69,6 +69,15 @@ class PlayerController(
 
     val sleepRemainingMs: StateFlow<Long?> = SleepState.remainingMs
 
+    /** Audio effects, owned by the service; see [EffectsState]. */
+    val boostMb: StateFlow<Int> = EffectsState.boostMb
+    val eqEnabled: StateFlow<Boolean> = EffectsState.eqEnabled
+    val eqPreset: StateFlow<Int> = EffectsState.eqPreset
+    val eqBandLevels: StateFlow<ShortArray> = EffectsState.eqBandLevels
+
+    /** Null until the effects first attach; null forever on a device with no usable equalizer. */
+    val eqBandInfo: StateFlow<EqBandInfo?> = EffectsState.bandInfo
+
     /** Binds to the service. Safe to call again; commands issued before it lands are dropped. */
     fun connect() {
         if (controller != null) return
@@ -130,9 +139,12 @@ class PlayerController(
         }
     }
 
-    /** Persisted service-side, so the next session starts at the same speed. */
+    /**
+     * Any speed in [MIN_SPEED]..[MAX_SPEED] (out-of-range values are coerced, not rejected).
+     * Persisted service-side, so the next session starts at the same speed.
+     */
     fun setSpeed(speed: Float) {
-        controller?.setPlaybackSpeed(speed)
+        controller?.setPlaybackSpeed(coerceSpeed(speed))
     }
 
     /** Absolute seek within the current track — the Player screen's scrub slider. */
@@ -153,6 +165,31 @@ class PlayerController(
             SessionCommand(COMMAND_CANCEL_SLEEP, Bundle.EMPTY),
             Bundle.EMPTY,
         )
+    }
+
+    /** Volume boost in millibels, 0..[MAX_BOOST_MB]; 0 leaves the effect disabled. */
+    fun setBoost(mB: Int) = send(COMMAND_SET_BOOST, bundleOf(KEY_BOOST_MB to mB))
+
+    fun setEqEnabled(enabled: Boolean) =
+        send(COMMAND_SET_EQ_ENABLED, bundleOf(KEY_EQ_ENABLED to enabled))
+
+    /** Device preset by index into [EqBandInfo.presetNames], or [EQ_PRESET_CUSTOM]. */
+    fun setEqPreset(index: Int) = send(COMMAND_SET_EQ_PRESET, bundleOf(KEY_EQ_PRESET to index))
+
+    /** Level in millibels, within the range in [EqBandInfo]. Any manual band makes it custom. */
+    fun setEqBand(
+        band: Int,
+        levelMb: Short,
+    ) = send(
+        COMMAND_SET_EQ_BAND,
+        bundleOf(KEY_EQ_BAND to band, KEY_EQ_BAND_LEVEL_MB to levelMb),
+    )
+
+    private fun send(
+        action: String,
+        args: Bundle,
+    ) {
+        controller?.sendCustomCommand(SessionCommand(action, Bundle.EMPTY), args)
     }
 
     private fun attach(mediaController: MediaController) {
