@@ -1,65 +1,77 @@
 # Next steps
 
-## P0 push — DONE (2026-08-06, one session, 5 agent phases)
+Current state: **v1.0, working and in daily use.** P0 was verified on a real
+phone against the real Plex server; the P1 batch below shipped on top of it.
+Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.0-debug.apk`.
 
-Milestones 0–3 of the original plan are built and unit-tested (13 tests):
-toolchain, scaffold + contract layer, Plex engine (PIN auth, connection
-race, library/collections sync, progress sync worker), playback engine
-(MediaSessionService, position ledger with 7 write-triggers, resume
-furthest-ahead rule, speed, sleep timer with fade+rewind, auto sleep
-window incl. midnight crossing), Compose UI (onboarding, Home, Library,
-Book detail, Player, mini-player, Settings), adversarial review pass.
+## Shipped (2026-08-06)
 
-## NOW: first real-device verification (Brandon)
+**P0 — the app works.** Plex PIN login, server discovery with the connection
+race, library + collections sync, streaming with resume, the position ledger
+(local-first, 7 write-triggers, furthest-ahead conflict rule), progress sync
+to Plex, playback speed, sleep timer with fade + rewind, the auto sleep
+window, and all the screens. Two adversarial review passes.
 
-- [ ] Sideload `app/build/outputs/apk/debug/app-debug.apk` on the phone
-- [ ] Full journey: PIN login → server pick → library pick → sync → stream a book
-- [ ] Kill-test the invariant: play, force-stop the app, reopen → position kept?
-- [ ] Overnight test: does the auto sleep window arm at bedtime? Bluetooth
-      headphone play-button re-arm?
-- [ ] Check Plex web dashboard shows progress moving
+**P1 batch.** Volume boost (0–12 dB) and device EQ (presets + manual bands)
+with their own sheet; continuous 0.5–3.0× speed with the reference-image
+speed sheet; library view modes (grid / list / compact list) with sort by
+title, recently added, or recently published; the A-Z fast-scroll rail;
+local search over the Room cache; the paper-and-ink design identity
+(ADR-006); the launcher icon (ADR-007).
 
-## Deferred from review (deliberate — see review commits dbc4e94+)
+## Next up, roughly in order
 
-- [ ] Mid-session reconnect (LAN→relay while playing): per-request base-URL
-      DataSource.Factory + re-race on IOException. Do together with downloads
-      (M4) — same factory.
-- [ ] onDestroy ledger write is async (bounded by 10s tick; runBlocking
-      trade-off rejected for now)
-- [ ] Per-row play state in ProgressSyncWorker (cosmetic on Plex dashboard)
-- [ ] Test harness for Android-dependent logic (Robolectric or fakes) — add
-      when a regression actually bites
+**Milestone 4 — Downloads.** The biggest remaining feature, and the one that
+pairs with the deferred reconnect work below (same plumbing).
 
-## Milestone 4 — Downloads (P1)
-
-- [ ] WorkManager download of a book's tracks (`?download=1`)
+- [ ] WorkManager download of a book's tracks (`?download=1` + token header)
 - [ ] Player source resolution: local file if present, else stream
-- [ ] Download state badges in library
+- [ ] Download state badges in library (the `isCached` column already exists
+      on both `Audiobook` and `Track` and is carried across syncs)
+- [ ] Do the mid-session reconnect with it: a `DataSource.Factory` resolving
+      the base URL per request, plus a re-race on `IOException`. Today a
+      LAN→relay move mid-session leaves the queue pointing at a dead URI,
+      because `PlayerController` builds MediaItem URIs once at `playBook`.
 
-## Design refresh — DONE (2026-08-06)
+**Milestone 5 — Remaining player polish.**
 
-Paper-and-ink identity: branded palette both modes (dark default, no dynamic
-color), Lora serif for titles/numerals, rounded shape scale, real icons, speed
-sheet and EQ/boost sheet, polish pass over every screen. See ADR-006.
+- [ ] Rewind-on-resume: fixed (1 min) or smart (scaled by pause length).
+      Never built; it's in the PRD's P1 table.
+- [ ] Android Auto (mostly config now that `MediaSessionService` is correct)
+- [ ] Recents / finished shelf / listening stats (Plex `lastViewedAt` and
+      view counts are already synced; stats need a local play-time log)
+- [ ] Chapter ticks on the scrub bar
 
-## Milestone 5 — Polish (P1/P2)
+**Parking lot.** Bookmarks with notes, per-book speed memory, skip silence.
 
-- [ ] Rewind-on-resume (fixed / smart) — P1, not yet built
-- [x] Volume boost + EQ — engine done (`AudioEffects.kt`: LoudnessEnhancer 0–1200 mB,
-      Equalizer presets + manual bands, re-attach on audio-session change). Continuous
-      speed 0.5–3.0 in the engine too. Controls come with the design phase; the facade
-      surface is on `PlayerController` (boostMb / eqEnabled / eqPreset / eqBandLevels /
-      eqBandInfo + setters). Controls shipped in the design phase: speed sheet and
-      EQ/boost sheet off the Player screen.
-- [ ] Android Auto
-- [ ] Search (local-first)
-- [ ] Recents / finished shelf / stats
-- [x] Material icons for pause/±30s (`material-icons-extended` added in the
-      design phase; `PauseIcon.kt` deleted)
+## Known deferred issues (deliberate, from the review passes)
 
-## Parking lot
+- `onDestroy`'s ledger write is async — a hard kill immediately after can
+  drop it. Bounded by the 10s tick and the pause write; the alternative is
+  `runBlocking` on the main thread, which trades a rare loss for an ANR.
+- `EffectsState.bandInfo` isn't cleared on service release, so a destroyed
+  service leaves stale band info on screen. Harmless single-device.
+- Effect setters are silently dropped if the `MediaController` isn't
+  connected. Unreachable today (the controller connects at NavHost creation);
+  matters only if the EQ sheet becomes reachable from Settings.
+- `AudioEffects.setBand` doesn't re-baseline off an active device preset —
+  only reachable via prefs written by an older build.
+- `LibraryViewModel.rows()` runs one Room query per in-progress book on every
+  emission. Bounded by books-with-a-position; a JOIN would remove it.
+- Per-row play state in `ProgressSyncWorker` (cosmetic on the Plex dashboard).
+- No Android-dependent test harness (Robolectric/fakes). Add when a
+  regression actually bites; the pure logic is unit-tested (27 tests).
+- Lint exits non-zero on 4 known false positives: one `WrongConstant` from
+  media3's incomplete `SessionResult` IntDef, three
+  `ProduceStateDoesNotAssignValue` where lint can't see through a nested
+  `let`/`collect`. Lint is not a gate.
 
-- Bookmarks with notes, per-book speed memory, skip silence
-- Tailscale for the broader multi-site network (unrelated to Yarn — Plex
-  relay covers this app; free tier is 100 devices / 3 users, subnet router
-  covers whole LANs)
+## If this ever becomes a release build
+
+Debug-signed is fine for sideloading and is what's shipping today. A real
+release build needs: a keystore **you** generate (`keytool -genkey -v
+-keystore yarn.jks ...` — the password is yours, put it in
+`keystore.properties`, which is already gitignored), a `signingConfigs` block
+reading that file, and `isMinifyEnabled = true` on the release build type.
+R8 will also strip the unused `material-icons-extended` glyphs, which is most
+of the current ~66 MB APK.

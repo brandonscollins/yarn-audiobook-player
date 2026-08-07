@@ -6,6 +6,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// One version string, used for both the app's versionName and the artifact name, so the
+// build lands at yarn-1.0-debug.apk instead of app-debug.apk.
+val appVersionName = "1.0"
+
+base.archivesName = "yarn-$appVersionName"
+
 android {
     namespace = "io.github.brandonscollins.yarn"
     compileSdk = 35
@@ -15,7 +21,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1"
+        versionName = appVersionName
     }
 
     buildTypes {

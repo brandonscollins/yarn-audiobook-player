@@ -4,6 +4,12 @@ Personal Android audiobook client for Plex. One user (Brandon), sideloaded,
 GPL-3.0. Read PRD.md for scope, decisions.md for the ADR log, next_steps.md
 for current work.
 
+**State: v1.0, shipped and in daily use.** P0 plus the P1 audio/library/design
+batch are done and device-verified; downloads are the next milestone. Treat
+existing behavior as load-bearing — someone is listening to books on this
+tonight. `versionName` and the artifact name both come from the single
+`appVersionName` constant in `app/build.gradle.kts`.
+
 ## Stack (decided — don't relitigate)
 
 - Kotlin + Jetpack Compose, Material 3

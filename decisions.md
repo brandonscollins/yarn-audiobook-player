@@ -62,3 +62,20 @@ hand-drawn `PauseGlyph` and the "-30"/"+30" text buttons) and the font resource.
 Nothing else. Icons-extended is a big artifact and the debug APK is unminified
 (~70 MB); turning on R8 for release will strip the unused glyphs when release
 builds start mattering.
+
+## ADR-007 — Launcher icon and artifact naming; v1.0 (2026-08-06)
+
+**Decision:** The mark is a gold skein of yarn low-left on the ink page, one
+cream thread unwinding up-right and resolving into three broadcast arcs — a
+story told aloud, which is what the name means. Authored entirely as vector
+XML (adaptive foreground + background + a monochrome variant for Android 13+
+themed icons); no PNG densities, since minSdk 29 means every device supports
+adaptive icons. Palette is ADR-006's, unchanged. Version is **1.0** and the
+artifact is named from it (`base.archivesName`), so builds land as
+`yarn-1.0-debug.apk` rather than `app-debug.apk`.
+**Why:** The app went into daily use with no icon at all (the standing
+`MissingApplicationIcon` lint warning) and a default artifact name that read
+as throwaway. The skein-plus-wave is the one image that says both "book" and
+"audio" without a headphone cliché.
+**Consequence:** `versionName` and the artifact name share one `appVersionName`
+constant in `app/build.gradle.kts` — bump that single value, not two.
