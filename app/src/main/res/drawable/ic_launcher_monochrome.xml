@@ -1,0 +1,38 @@
+<!--
+  Themed-icon silhouette (Android 13+); the system recolours it. Same mark in
+  one colour: solid skein, thread, three arcs. The interior strand detail is
+  dropped — with no colour separation it would only muddy the disc at launcher
+  size. The thread's first stretch merges into the disc, exactly as it should.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,63a19,19 0 1,0 38,0a19,19 0 1,0 -38,0" />
+
+    <path
+        android:pathData="M47,58 C57,55 56,48 64,45"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M63.4,38.0 A7,7 0 0,1 71.0,45.6"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M62.9,32.5 A12.5,12.5 0 0,1 76.5,46.1"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M62.5,28.1 A17,17 0 0,1 80.9,46.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round" />
+</vector>

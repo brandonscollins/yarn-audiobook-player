@@ -1,0 +1,76 @@
+<!--
+  Yarn: a gold skein low-left on the ink page, one cream thread unwinding
+  up-right and resolving into broadcast arcs — a story told aloud.
+
+  108x108 adaptive canvas. The mark stays inside a ~66dp centred circle so no
+  launcher mask clips it. Skein: centre (43,63), r19. Wave origin: (64,45),
+  arcs of r7/12.5/17 spanning -95deg to +5deg.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- The ball. -->
+    <path
+        android:fillColor="#B8801C"
+        android:pathData="M24,63a19,19 0 1,0 38,0a19,19 0 1,0 -38,0" />
+
+    <!-- Wound strands, clipped to the ball: three catching the light,
+         two crossing them as soft ink grooves. -->
+    <group>
+        <clip-path android:pathData="M24,63a19,19 0 1,0 38,0a19,19 0 1,0 -38,0" />
+        <path
+            android:pathData="M19,73 Q31,47 55,39"
+            android:strokeColor="#DFAE4A"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M21,83 Q39,59 63,51"
+            android:strokeColor="#DFAE4A"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M31,91 Q51,71 69,63"
+            android:strokeColor="#DFAE4A"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M25,47 Q33,73 57,83"
+            android:strokeColor="#17120E"
+            android:strokeAlpha="0.35"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M39,37 Q47,63 71,73"
+            android:strokeColor="#17120E"
+            android:strokeAlpha="0.35"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round" />
+    </group>
+
+    <!-- The loose end, unwinding out of the ball... -->
+    <path
+        android:pathData="M47,58 C57,55 56,48 64,45"
+        android:strokeColor="#F2E7D2"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round" />
+
+    <!-- ...and becoming sound. -->
+    <path
+        android:pathData="M63.4,38.0 A7,7 0 0,1 71.0,45.6"
+        android:strokeColor="#F2E7D2"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M62.9,32.5 A12.5,12.5 0 0,1 76.5,46.1"
+        android:strokeColor="#F2E7D2"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M62.5,28.1 A17,17 0 0,1 80.9,46.5"
+        android:strokeColor="#F2E7D2"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round" />
+</vector>
