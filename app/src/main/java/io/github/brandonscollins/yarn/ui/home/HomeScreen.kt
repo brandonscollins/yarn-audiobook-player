@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
@@ -28,6 +30,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -45,6 +48,7 @@ import coil.compose.AsyncImage
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.ui.common.ThinProgressBar
+import io.github.brandonscollins.yarn.ui.common.formatRemaining
 import io.github.brandonscollins.yarn.ui.common.thumbUri
 import io.github.brandonscollins.yarn.ui.player.PlayerViewModel
 import io.github.brandonscollins.yarn.settings.PlexPrefs
@@ -55,13 +59,22 @@ fun HomeScreen(
     playerViewModel: PlayerViewModel,
     onOpenBook: (Int) -> Unit,
     onOpenPlayer: () -> Unit,
+    onOpenRecentlyPlayed: () -> Unit,
     onOpenSettings: () -> Unit,
     homeViewModel: HomeViewModel = viewModel(),
 ) {
     val context = LocalContext.current
     val prefs = remember(context) { PlexGraph.prefs(context) }
     val continueListening by homeViewModel.continueListening.collectAsState()
+    val upNext by homeViewModel.upNext.collectAsState()
+    val recentlyPlayed by homeViewModel.recentlyPlayed.collectAsState()
     val recentlyAdded by homeViewModel.recentlyAdded.collectAsState()
+    val finished by homeViewModel.finished.collectAsState()
+
+    val play = { bookId: Int ->
+        playerViewModel.controller.playBook(bookId)
+        onOpenPlayer()
+    }
 
     Scaffold(
         topBar = {
@@ -75,7 +88,11 @@ fun HomeScreen(
             )
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+        Column(
+            modifier =
+                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+        ) {
             if (continueListening == null && recentlyAdded.isEmpty()) {
                 Text(
                     "Welcome to Yarn. Open Library to start listening.",
@@ -93,11 +110,7 @@ fun HomeScreen(
                         CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainer,
                         ),
-                    modifier =
-                        Modifier.fillMaxWidth().clickable {
-                            playerViewModel.controller.playBook(cl.book.id)
-                            onOpenPlayer()
-                        },
+                    modifier = Modifier.fillMaxWidth().clickable { play(cl.book.id) },
                 ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
@@ -130,6 +143,14 @@ fun HomeScreen(
                             cl.progress?.let {
                                 ThinProgressBar(it, modifier = Modifier.padding(top = 10.dp))
                             }
+                            playedLabel(cl)?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 6.dp),
+                                )
+                            }
                         }
                         // One tap resumes (PRD) — the gold disc says so.
                         Box(
@@ -150,12 +171,53 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(28.dp))
             }
 
+            // Absent unless the current book sits in a collection with an unstarted book after it,
+            // which for a library of standalone titles is always.
+            upNext?.let { book ->
+                SectionHeader("Up next")
+                Spacer(modifier = Modifier.height(8.dp))
+                RecentBookItem(book, prefs, onClick = { play(book.id) })
+                Spacer(modifier = Modifier.height(28.dp))
+            }
+
+            if (recentlyPlayed.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    SectionHeader("Recently played")
+                    Spacer(modifier = Modifier.weight(1f))
+                    TextButton(onClick = onOpenRecentlyPlayed) { Text("View more") }
+                }
+                LazyRow {
+                    items(recentlyPlayed, key = { it.book.id }) { row ->
+                        PlayedBookItem(row, prefs, Modifier.width(124.dp).padding(end = 14.dp)) {
+                            play(row.book.id)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(28.dp))
+            }
+
             if (recentlyAdded.isNotEmpty()) {
                 SectionHeader("Recently added")
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow {
                     items(recentlyAdded, key = { it.id }) { book ->
                         RecentBookItem(book, prefs, onClick = { onOpenBook(book.id) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(28.dp))
+            }
+
+            if (finished.isNotEmpty()) {
+                SectionHeader("Finished")
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow {
+                    items(finished, key = { it.book.id }) { row ->
+                        PlayedBookItem(row, prefs, Modifier.width(124.dp).padding(end = 14.dp)) {
+                            play(row.book.id)
+                        }
                     }
                 }
             }
@@ -172,6 +234,49 @@ private fun SectionHeader(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         letterSpacing = 1.5.sp,
     )
+}
+
+/** "4h 20m left" is the number that matters; a done book says so instead. */
+private fun playedLabel(row: PlayedBook): String? =
+    if (row.finished) "Finished" else row.remainingMs?.let(::formatRemaining)
+
+/** Shared by both played shelves and the "View more" grid — same cover, same time-left line. */
+@Composable
+internal fun PlayedBookItem(
+    row: PlayedBook,
+    prefs: PlexPrefs,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Column(modifier = modifier.clickable(onClick = onClick)) {
+        Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
+            AsyncImage(
+                model = thumbUri(prefs, row.book.thumbPath),
+                contentDescription = null,
+                modifier =
+                    Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            )
+            row.progress?.let {
+                ThinProgressBar(it, modifier = Modifier.align(Alignment.BottomCenter))
+            }
+        }
+        Text(
+            row.book.title,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        playedLabel(row)?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
 }
 
 @Composable

@@ -21,4 +21,10 @@ data class PlaybackPosition(
      * pending job; the outbox clears it once `/:/scrobble` is accepted.
      */
     val finishedPending: Boolean = false,
+    /**
+     * "This book is done" — durable, unlike [finishedPending], which the outbox clears the moment
+     * Plex accepts the scrobble. The UI reads this one; without it the app forgets a book is
+     * finished as soon as it successfully says so.
+     */
+    val finished: Boolean = false,
 )

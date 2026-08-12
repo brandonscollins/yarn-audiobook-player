@@ -1,6 +1,7 @@
 package io.github.brandonscollins.yarn.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,8 +18,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,7 +34,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -50,6 +56,7 @@ fun BookDetailScreen(
     playerViewModel: PlayerViewModel,
     onBack: () -> Unit,
     onOpenPlayer: () -> Unit,
+    onOpenAuthor: (String) -> Unit,
     viewModel: BookDetailViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -57,6 +64,7 @@ fun BookDetailScreen(
     val book by viewModel.book.collectAsState()
     val tracks by viewModel.tracks.collectAsState()
     val position by viewModel.position.collectAsState()
+    var menuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -67,6 +75,28 @@ fun BookDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                    }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        val finished = position?.finished == true
+                        DropdownMenuItem(
+                            text = { Text(if (finished) "Mark as unfinished" else "Mark as finished") },
+                            onClick = {
+                                viewModel.setFinished(!finished)
+                                menuExpanded = false
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Mark as unplayed") },
+                            onClick = {
+                                viewModel.markUnplayed()
+                                menuExpanded = false
+                            },
+                        )
                     }
                 },
             )
@@ -88,11 +118,16 @@ fun BookDetailScreen(
                             verticalArrangement = Arrangement.Center,
                         ) {
                             Text(book?.title.orEmpty(), style = MaterialTheme.typography.headlineSmall)
+                            val author = book?.author.orEmpty()
                             Text(
-                                book?.author.orEmpty(),
+                                author,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp),
+                                // Gold marks it as the one tappable word here (ADR-006: gold for
+                                // fills and indicators, never small body text on its own).
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier =
+                                    Modifier.padding(top = 4.dp)
+                                        .clickable(enabled = author.isNotBlank()) { onOpenAuthor(author) },
                             )
                         }
                     }

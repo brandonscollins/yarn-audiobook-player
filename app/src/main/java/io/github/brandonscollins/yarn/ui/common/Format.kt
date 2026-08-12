@@ -15,6 +15,23 @@ fun formatMmSs(ms: Long): String {
     return "%d:%02d".format(totalSec / 60, totalSec % 60)
 }
 
+/**
+ * "4h 20m left" — the coarse label Home, book detail and the mini player all share. Always rounds
+ * down, so it never promises less listening than there is, and collapses the last minute into
+ * "under a minute left" rather than counting seconds at someone.
+ */
+fun formatRemaining(ms: Long): String {
+    val totalMin = ms.coerceAtLeast(0) / 60_000
+    val h = totalMin / 60
+    val m = totalMin % 60
+    return when {
+        totalMin < 1 -> "under a minute left"
+        h == 0L -> "${m}m left"
+        m == 0L -> "${h}h left"
+        else -> "${h}h ${m}m left"
+    }
+}
+
 private val LEADING_ARTICLES = listOf("The ", "A ", "An ")
 
 /** Strips a leading "The "/"A "/"An " — used for alphabetical sort and A-Z rail bucketing. */

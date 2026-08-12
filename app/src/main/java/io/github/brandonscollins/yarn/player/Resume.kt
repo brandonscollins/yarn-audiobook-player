@@ -25,6 +25,55 @@ fun absolutePositionMs(
 ): Long = tracks.take(trackIndex).sumOf { it.durationMs } + positionMs
 
 /**
+ * Inverse of [absolutePositionMs] — which track a book-level position lands in. Used by the
+ * book-level scrub bar and by rewind-on-resume; both clamp to the book rather than running off
+ * either end. An empty track list keeps the position where it is, which is what the Player screen
+ * wants during the beat before Room has emitted.
+ */
+fun resumePointAt(
+    tracks: List<Track>,
+    absoluteMs: Long,
+): ResumePoint {
+    var left = absoluteMs.coerceAtLeast(0)
+    tracks.forEachIndexed { index, track ->
+        if (left < track.durationMs || index == tracks.lastIndex) {
+            return ResumePoint(index, left.coerceAtMost(track.durationMs))
+        }
+        left -= track.durationMs
+    }
+    return ResumePoint(0, left)
+}
+
+/** Rewind-on-resume modes, stored in [PlayerPrefs.rewindMode]. */
+const val REWIND_OFF = 0
+const val REWIND_FIXED = 1
+const val REWIND_SMART = 2
+
+/** A pause this short is a stumble, not a break — nothing to re-hear, whatever the mode. */
+private const val REWIND_DEADBAND_MS = 10_000L
+
+/** Smart mode's ceiling. The PRD's "overnight → full minute". */
+private const val MAX_SMART_REWIND_MS = 60_000L
+
+/**
+ * How far back to jump when playback resumes after [pausedForMs] of silence (PRD P1). Smart mode is
+ * a tenth of the pause — a minute away costs six seconds, ten minutes or more costs the cap — which
+ * is the cheapest curve that gets both ends of the PRD's range right. Callers clamp the result to
+ * the start of the book.
+ */
+fun rewindOnResumeMs(
+    mode: Int,
+    pausedForMs: Long,
+    fixedMs: Long,
+): Long =
+    when {
+        pausedForMs <= REWIND_DEADBAND_MS -> 0
+        mode == REWIND_FIXED -> fixedMs.coerceAtLeast(0)
+        mode == REWIND_SMART -> (pausedForMs / 10).coerceAtMost(MAX_SMART_REWIND_MS)
+        else -> 0
+    }
+
+/**
  * Is this ledger position inside the book's finished window? False when we can't tell (unknown
  * track, no duration), because guessing wrong here marks an unread book as read on the server.
  */

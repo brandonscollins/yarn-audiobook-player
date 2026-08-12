@@ -39,6 +39,21 @@ fun isInWindow(
     }
 
 /**
+ * Wall-clock ms left in the current chapter at [speed] — the "end of chapter" countdown, and what
+ * it compares against [FADE_MS] to decide when to start fading. An unknown duration (media3's
+ * `TIME_UNSET`, or a track still preparing) never triggers the fade, because guessing here would
+ * stop playback in the middle of a chapter.
+ */
+fun chapterRemainingMs(
+    durationMs: Long,
+    positionMs: Long,
+    speed: Float,
+): Long {
+    if (durationMs <= 0 || speed <= 0f) return Long.MAX_VALUE
+    return ((durationMs - positionMs).coerceAtLeast(0) / speed).toLong()
+}
+
+/**
  * Counts down, then fades out and pauses, rewinding to where the fade began so no half-heard
  * sentence is lost (PRD "Sleep-window spec"). [scope] must dispatch on the player's thread.
  */
@@ -69,6 +84,39 @@ class SleepTimer(
                 fadeAndPause()
                 SleepState.remainingMs.value = null
             }
+    }
+
+    /**
+     * Same ending as [arm] — fade, pause, rewind to the fade start — but the deadline is the end of
+     * whatever chapter is playing rather than a duration, recomputed each tick so a seek or a skip
+     * to another chapter moves it.
+     */
+    fun armEndOfChapter() {
+        job?.cancel()
+        player.volume = 1f
+        publishChapterRemaining()
+        job =
+            scope.launch {
+                while (true) {
+                    delay(TICK_MS)
+                    if (!player.isPlaying) continue
+                    if (publishChapterRemaining() <= FADE_MS) break
+                }
+                fadeAndPause()
+                SleepState.remainingMs.value = null
+            }
+    }
+
+    /** Publishes the countdown; a chapter whose length isn't known yet reads 0:00 for one tick. */
+    private fun publishChapterRemaining(): Long {
+        val left =
+            chapterRemainingMs(
+                player.duration,
+                player.currentPosition,
+                player.playbackParameters.speed,
+            )
+        SleepState.remainingMs.value = if (left == Long.MAX_VALUE) 0L else left
+        return left
     }
 
     /** Aborts the timer and undoes any fade in progress. */

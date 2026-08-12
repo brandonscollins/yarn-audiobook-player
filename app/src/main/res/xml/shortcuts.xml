@@ -1,0 +1,18 @@
+<!--
+  The one launcher long-press shortcut. Static, not ShortcutManager: there is
+  exactly one entry and it never changes, so nothing needs to be published at
+  runtime. The action string is duplicated in MainActivity.ACTION_RESUME.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="resume"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_resume"
+        android:shortcutShortLabel="@string/shortcut_resume_short"
+        android:shortcutLongLabel="@string/shortcut_resume_long">
+        <intent
+            android:action="io.github.brandonscollins.yarn.action.RESUME"
+            android:targetPackage="io.github.brandonscollins.yarn"
+            android:targetClass="io.github.brandonscollins.yarn.MainActivity" />
+    </shortcut>
+</shortcuts>

@@ -23,3 +23,17 @@ suspend fun bookProgress(
     return (absolutePositionMs(tracks, trackIndex, position.positionMs).toFloat() / book.durationMs)
         .coerceIn(0f, 1f)
 }
+
+/** Milliseconds left in the book, for [formatRemaining]. Null on the same defensive cases. */
+suspend fun bookRemainingMs(
+    db: YarnDatabase,
+    book: Audiobook,
+    position: PlaybackPosition,
+): Long? {
+    if (book.durationMs <= 0) return null
+    val tracks = db.trackDao().getTracksForBook(book.id).first()
+    val trackIndex = tracks.indexOfFirst { it.id == position.trackId }
+    if (trackIndex < 0) return null
+    return (book.durationMs - absolutePositionMs(tracks, trackIndex, position.positionMs))
+        .coerceAtLeast(0)
+}

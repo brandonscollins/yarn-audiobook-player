@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Yarn</string>
+    <string name="shortcut_resume_short">Resume</string>
+    <string name="shortcut_resume_long">Resume last book</string>
 </resources>

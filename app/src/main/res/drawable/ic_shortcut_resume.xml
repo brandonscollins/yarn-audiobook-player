@@ -1,0 +1,19 @@
+<!--
+  Shortcut glyph: ADR-006's ink page and the one antique gold, nothing else. The
+  skein mark from the launcher icon is dropped here — at the ~48dp a shortcut row
+  gets, the thread and arcs read as lint.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#17120E"
+        android:pathData="M12,0a12,12 0 1,0 0,24a12,12 0 1,0 0,-24" />
+
+    <path
+        android:fillColor="#B8801C"
+        android:pathData="M9.6,7.1 L17,12 L9.6,16.9 Z" />
+</vector>

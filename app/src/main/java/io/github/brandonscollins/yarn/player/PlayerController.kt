@@ -14,6 +14,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
+import io.github.brandonscollins.yarn.data.model.PlaybackPosition
 import io.github.brandonscollins.yarn.data.model.Track
 import io.github.brandonscollins.yarn.data.plex.LibrarySyncRepo
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
@@ -43,6 +44,7 @@ class PlayerController(
 ) {
     private val appContext = context.applicationContext
     private val plexPrefs = PlexGraph.prefs(appContext)
+    private val playerPrefs = PlayerPrefs(appContext)
     private val db = PlexGraph.db(appContext)
     private val syncRepo = LibrarySyncRepo(plexPrefs, PlexGraph.api(appContext), db)
 
@@ -110,11 +112,15 @@ class PlayerController(
                     db.trackDao().getTracksForBook(bookId).first()
                 }
             if (tracks.isEmpty()) return@launch
-            val resume = resumePoint(tracks, db.positionDao().getPosition(bookId))
+            val ledger = db.positionDao().getPosition(bookId)
+            val resume = resumePoint(tracks, ledger)
+            val start = rewound(tracks, resume, ledger)
+            consumePlexOffsets(bookId, tracks, resume, ledger)
             val items = tracks.map { it.toMediaItem(bookId, plexPrefs) }
             withContext(Dispatchers.Main) {
                 val c = controller ?: return@withContext
-                c.setMediaItems(items, resume.trackIndex, resume.positionMs)
+                c.setMediaItems(items, start.trackIndex, start.positionMs)
+                c.setPlaybackSpeed(coerceSpeed(playerPrefs.speedFor(bookId)))
                 c.prepare()
                 c.play()
             }
@@ -127,16 +133,62 @@ class PlayerController(
 
     /** ±30s. Rewinding past the start of a track walks into the previous one. */
     fun seekBy(deltaMs: Long) {
-        val c = controller ?: return
-        val target = c.currentPosition + deltaMs
-        val previousIndex = c.currentMediaItemIndex - 1
-        if (target < 0 && previousIndex >= 0) {
-            val previousDuration =
-                c.currentTimeline.getWindow(previousIndex, Timeline.Window()).durationMs
-            c.seekTo(previousIndex, (previousDuration + target).coerceAtLeast(0))
-        } else {
-            c.seekTo(target.coerceAtLeast(0))
-        }
+        controller?.seekWithinBook(deltaMs)
+    }
+
+    /**
+     * Folds the Plex `viewOffset` mirror into the ledger and clears it, so the furthest-ahead rule
+     * in [resumePoint] decides each conflict exactly once. Nothing local ever writes that mirror —
+     * only a sync from Plex does — so leaving it set means it keeps winning later comparisons even
+     * after the ledger has moved on. Any deliberate move *backwards* would then be undone on the
+     * next resume: rewind-on-resume would rewind, and the following resume would snap forward to
+     * the old offset again until playback passed it.
+     *
+     * Order is the invariant: the ledger takes the position before the mirror gives it up, so a
+     * kill between the two writes loses nothing.
+     */
+    private suspend fun consumePlexOffsets(
+        bookId: Int,
+        tracks: List<Track>,
+        resume: ResumePoint,
+        ledger: PlaybackPosition?,
+    ) {
+        val mirrored = tracks.filter { it.viewOffsetMs > 0 }
+        if (mirrored.isEmpty()) return
+        db.positionDao().upsert(
+            PlaybackPosition(
+                bookId = bookId,
+                trackId = tracks[resume.trackIndex].id,
+                positionMs = resume.positionMs,
+                updatedAtEpochMs = System.currentTimeMillis(),
+                syncedToPlex = false,
+                finishedPending = ledger?.finishedPending == true,
+                finished = ledger?.finished == true,
+            ),
+        )
+        db.trackDao().upsertAll(mirrored.map { it.copy(viewOffsetMs = 0) })
+    }
+
+    /**
+     * Where playback should actually start after a pause: the resume point, pulled back by
+     * rewind-on-resume and never past the start of the book. The ledger row's timestamp is the
+     * pause clock that survives process death — the in-session case is [PlaybackService]'s.
+     */
+    private fun rewound(
+        tracks: List<Track>,
+        resume: ResumePoint,
+        ledger: PlaybackPosition?,
+    ): ResumePoint {
+        if (ledger == null) return resume
+        val rewindMs =
+            rewindOnResumeMs(
+                playerPrefs.rewindMode,
+                System.currentTimeMillis() - ledger.updatedAtEpochMs,
+                playerPrefs.fixedRewindSec * 1_000L,
+            )
+        if (rewindMs <= 0) return resume
+        val absoluteMs = absolutePositionMs(tracks, resume.trackIndex, resume.positionMs)
+        return resumePointAt(tracks, absoluteMs - rewindMs)
     }
 
     /**
@@ -147,11 +199,11 @@ class PlayerController(
         controller?.setPlaybackSpeed(coerceSpeed(speed))
     }
 
-    /** Absolute seek within the current track — the Player screen's scrub slider. */
-    fun seekTo(positionMs: Long) = controller?.seekTo(positionMs) ?: Unit
-
-    /** Jump to a track (chapters sheet), starting at its beginning. */
-    fun seekToTrack(trackIndex: Int) = controller?.seekTo(trackIndex, 0L) ?: Unit
+    /** Jump to a track — the chapters sheet, and where the book-level scrub bar lands. */
+    fun seekToTrack(
+        trackIndex: Int,
+        positionMs: Long = 0L,
+    ) = controller?.seekTo(trackIndex, positionMs) ?: Unit
 
     fun armSleep(durationMs: Long) {
         controller?.sendCustomCommand(
@@ -221,6 +273,22 @@ class PlayerController(
         _isPlaying.value = c.isPlaying
         _speed.value = c.playbackParameters.speed
         _durationMs.value = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+    }
+}
+
+/**
+ * Seek by [deltaMs] treating the book as continuous: rewinding past the start of a track walks into
+ * the previous one instead of stopping at zero. Shared by the ±30s pills and by the service's
+ * rewind-on-resume, which needs the same walk for a resume near the top of a file.
+ */
+fun Player.seekWithinBook(deltaMs: Long) {
+    val target = currentPosition + deltaMs
+    val previousIndex = currentMediaItemIndex - 1
+    if (target < 0 && previousIndex >= 0) {
+        val previousDuration = currentTimeline.getWindow(previousIndex, Timeline.Window()).durationMs
+        seekTo(previousIndex, (previousDuration + target).coerceAtLeast(0))
+    } else {
+        seekTo(target.coerceAtLeast(0))
     }
 }
 

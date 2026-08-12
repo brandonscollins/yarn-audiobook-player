@@ -1,5 +1,6 @@
 package io.github.brandonscollins.yarn.ui.player
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -61,11 +63,13 @@ import coil.compose.AsyncImage
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.Track
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
-import io.github.brandonscollins.yarn.player.PlayerPrefs
 import io.github.brandonscollins.yarn.player.SEEK_STEP_MS
+import io.github.brandonscollins.yarn.player.absolutePositionMs
+import io.github.brandonscollins.yarn.player.resumePointAt
 import io.github.brandonscollins.yarn.ui.common.formatDuration
 import io.github.brandonscollins.yarn.ui.common.formatMmSs
 import io.github.brandonscollins.yarn.ui.common.thumbUri
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,7 +80,6 @@ fun PlayerScreen(
     val context = LocalContext.current
     val db = remember(context) { PlexGraph.db(context) }
     val prefs = remember(context) { PlexGraph.prefs(context) }
-    val playerPrefs = remember(context) { PlayerPrefs(context) }
     val controller = playerViewModel.controller
 
     val bookId by controller.bookId.collectAsState()
@@ -98,8 +101,29 @@ fun PlayerScreen(
 
     var showChapters by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
+    var showSleep by remember { mutableStateOf(false) }
     var showEq by remember { mutableStateOf(false) }
     var dragPositionMs by remember { mutableStateOf<Float?>(null) }
+
+    // The scrub bar is book-level: a Plex audiobook's files are its chapters, so the track
+    // boundaries are what the ticks mark, and they only mean anything on a bar that spans the book.
+    //
+    // ponytail: track boundaries are the only chapters we know about, so a single-file book (one
+    // big MP3 or M4B) gets a plain bar. media3 hands ID3 chapter frames over as timed metadata
+    // during playback and doesn't parse MP4 `chpl` atoms at all, so embedded chapters would cost a
+    // service→UI metadata channel plus an atom parser. Worth it only if a single-file book lands.
+    val bookDurationMs = tracks.sumOf { it.durationMs }.takeIf { it > 0 } ?: durationMs
+    val chapterFractions =
+        remember(tracks, bookDurationMs) {
+            if (tracks.size < 2 || bookDurationMs <= 0) {
+                emptyList()
+            } else {
+                tracks.dropLast(1)
+                    .runningFold(0L) { acc, track -> acc + track.durationMs }
+                    .drop(1)
+                    .map { it.toFloat() / bookDurationMs }
+            }
+        }
 
     Scaffold(
         topBar = {
@@ -150,16 +174,21 @@ fun PlayerScreen(
 
             // Bottom half: everything one-handed (PRD).
             Column(modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 24.dp)) {
-                val sliderMax = durationMs.coerceAtLeast(1L).toFloat()
-                val sliderPosition = (dragPositionMs ?: positionMs.toFloat()).coerceIn(0f, sliderMax)
-                Slider(
-                    value = sliderPosition,
+                val sliderMax = bookDurationMs.coerceAtLeast(1L).toFloat()
+                val absoluteMs = absolutePositionMs(tracks, trackIndex, positionMs)
+                val sliderPosition = (dragPositionMs ?: absoluteMs.toFloat()).coerceIn(0f, sliderMax)
+                ChapterSlider(
+                    positionMs = sliderPosition,
+                    durationMs = sliderMax,
+                    chapterFractions = chapterFractions,
                     onValueChange = { dragPositionMs = it },
                     onValueChangeFinished = {
-                        dragPositionMs?.let { controller.seekTo(it.toLong()) }
+                        dragPositionMs?.let {
+                            val target = resumePointAt(tracks, it.toLong())
+                            controller.seekToTrack(target.trackIndex, target.positionMs)
+                        }
                         dragPositionMs = null
                     },
-                    valueRange = 0f..sliderMax,
                 )
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -169,7 +198,7 @@ fun PlayerScreen(
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
-                        formatDuration(durationMs),
+                        formatDuration(bookDurationMs),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -216,11 +245,7 @@ fun PlayerScreen(
                         label = sleepRemainingMs?.let { formatMmSs(it) } ?: "Sleep",
                         active = sleepRemainingMs != null,
                         onClick = {
-                            if (sleepRemainingMs != null) {
-                                controller.cancelSleep()
-                            } else {
-                                controller.armSleep(playerPrefs.defaultDurationMin * 60_000L)
-                            }
+                            if (sleepRemainingMs != null) controller.cancelSleep() else showSleep = true
                         },
                     )
                     ControlPill(
@@ -275,8 +300,58 @@ fun PlayerScreen(
         )
     }
 
+    if (showSleep) {
+        SleepSheet(
+            onArm = controller::armSleep,
+            onDismiss = { showSleep = false },
+        )
+    }
+
     if (showEq) {
         EqSheet(controller = controller, onDismiss = { showEq = false })
+    }
+}
+
+/**
+ * The scrub bar, with one tick per chapter boundary. Only local drag state moves during a gesture —
+ * the seek is committed once on release — so a drag never turns into a stream of session IPC.
+ */
+@Composable
+private fun ChapterSlider(
+    positionMs: Float,
+    durationMs: Float,
+    chapterFractions: List<Float>,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+) {
+    // Ink on both halves of the track: gold-on-gold would vanish on the played side.
+    val tickColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+        Slider(
+            value = positionMs,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = 0f..durationMs,
+        )
+        Canvas(modifier = Modifier.matchParentSize()) {
+            // The track is inset by the thumb's radius at each end; that inset is the whole
+            // geometry, since a tick has to line up with where the thumb stops.
+            val inset = 10.dp.toPx()
+            val trackWidth = size.width - inset * 2
+            val thumbX = inset + trackWidth * (positionMs / durationMs).coerceIn(0f, 1f)
+            val tickHeight = 4.dp.toPx()
+            chapterFractions.forEach { fraction ->
+                val x = inset + trackWidth * fraction
+                // The thumb (and the gap M3 leaves around it) already marks whatever it covers.
+                if (abs(x - thumbX) < inset) return@forEach
+                drawLine(
+                    color = tickColor,
+                    start = Offset(x, (size.height - tickHeight) / 2f),
+                    end = Offset(x, (size.height + tickHeight) / 2f),
+                    strokeWidth = 2.dp.toPx(),
+                )
+            }
+        }
     }
 }
 

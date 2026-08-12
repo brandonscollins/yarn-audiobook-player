@@ -48,6 +48,7 @@ import io.github.brandonscollins.yarn.player.MAX_BOOST_MB
 import io.github.brandonscollins.yarn.player.MAX_SPEED
 import io.github.brandonscollins.yarn.player.MIN_SPEED
 import io.github.brandonscollins.yarn.player.PlayerController
+import io.github.brandonscollins.yarn.player.SLEEP_END_OF_CHAPTER
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -139,6 +140,55 @@ fun SpeedSheet(
                     )
                 }
             }
+        }
+    }
+}
+
+private val SLEEP_PRESETS_MIN = listOf(5, 15, 30, 45, 60)
+
+/**
+ * Sleep timer: the usual durations, plus "end of chapter", which runs until the current file ends
+ * and then takes the same fade-pause-rewind exit as a duration timer. Nothing is ever selected here
+ * — the sheet only opens when no timer is armed; the pill itself is the cancel.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SleepSheet(
+    onArm: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    fun arm(durationMs: Long) {
+        onArm(durationMs)
+        onDismiss()
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                "Sleep timer",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SLEEP_PRESETS_MIN.forEach { minutes ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { arm(minutes * 60_000L) },
+                        label = { Text("${minutes}m") },
+                        shape = CircleShape,
+                    )
+                }
+            }
+            FilterChip(
+                selected = false,
+                onClick = { arm(SLEEP_END_OF_CHAPTER) },
+                label = { Text("End of chapter") },
+                shape = CircleShape,
+                modifier = Modifier.padding(top = 12.dp),
+            )
         }
     }
 }

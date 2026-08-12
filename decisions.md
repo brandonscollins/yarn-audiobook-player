@@ -79,3 +79,33 @@ as throwaway. The skein-plus-wave is the one image that says both "book" and
 "audio" without a headphone cliché.
 **Consequence:** `versionName` and the artifact name share one `appVersionName`
 constant in `app/build.gradle.kts` — bump that single value, not two.
+
+## ADR-008 — `finished` is a durable column, not the outbox flag (2026-08-12)
+
+**Decision:** `playback_positions` gains a `finished` column (schema v4,
+`MIGRATION_3_4`) alongside the existing `finishedPending`. `finishedPending` stays
+what it always was — "Plex hasn't been told yet", cleared by the outbox on a
+successful `/:/scrobble`. One DAO method, `setFinished(bookId, finished)`, sets
+both and clears `syncedToPlex` so the outbox re-examines an already-synced row;
+auto-finish and a manual "mark finished" go through it.
+**Why:** The UI needs to know a book is done, and the only existing signal was
+erased by the very sync that confirmed it. Plex's own 90% rule is still
+deliberately defeated (gotcha #2), so nothing else can tell us.
+**Consequence:** `PositionLedger.record` carries `finished` forward on every
+upsert, like `finishedPending`. `markSynced` clears only the outbox flag.
+
+## ADR-009 — the Plex `viewOffset` mirror is consumed once, at book open (2026-08-12)
+
+**Decision:** `PlayerController.playBook` resolves the furthest-ahead conflict in
+`resumePoint`, writes the winner into the ledger, and then zeroes the book's
+`Track.viewOffsetMs`. Ledger write first, mirror clear second, so a kill between
+the two loses nothing.
+**Why:** Nothing local ever wrote that mirror — only a sync from Plex does — so a
+mirror left set kept winning every later comparison. Harmless while playback only
+moved forward; rewind-on-resume moves it backwards, and the stale
+mirror silently undid the rewind, snapping the listener forward to the old offset
+on the next resume until playback passed it. A manual 30s rewind before a pause
+had the same latent bug.
+**Consequence:** Cross-device progress still wins on open, because the mirror is
+read before it is cleared. "Mark as unplayed" already zeroed the same mirror for
+the same reason.

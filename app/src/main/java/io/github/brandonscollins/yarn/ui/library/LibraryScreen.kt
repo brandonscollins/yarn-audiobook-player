@@ -2,6 +2,8 @@ package io.github.brandonscollins.yarn.ui.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.filled.ViewHeadline
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -48,6 +51,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -87,6 +91,7 @@ fun LibraryScreen(
     val sortMode by viewModel.sortMode.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val filterMode by viewModel.filterMode.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
         LibraryTopBar(
@@ -97,6 +102,7 @@ fun LibraryScreen(
             onSortModeChange = viewModel::setSortMode,
             onSearchQueryChange = viewModel::setSearchQuery,
         )
+        FilterChipRow(filterMode, viewModel::setFilterMode)
 
         if (searchQuery.isNotBlank()) {
             BookListing(searchResults, prefs, viewMode, sortMode, onOpenBook)
@@ -183,6 +189,35 @@ private fun nextViewMode(mode: ViewMode) =
         ViewMode.ListCompact -> ViewMode.Grid
     }
 
+private fun filterLabel(mode: FilterMode) =
+    when (mode) {
+        FilterMode.All -> "All"
+        FilterMode.InProgress -> "In progress"
+        FilterMode.NotStarted -> "Not started"
+        FilterMode.Finished -> "Finished"
+    }
+
+/** Always visible, unlike the sort menu: a filtered library that looks unfiltered is a bug report. */
+@Composable
+private fun FilterChipRow(
+    filterMode: FilterMode,
+    onFilterModeChange: (FilterMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FilterMode.entries.forEach { mode ->
+            FilterChip(
+                selected = mode == filterMode,
+                onClick = { onFilterModeChange(mode) },
+                label = { Text(filterLabel(mode)) },
+            )
+        }
+    }
+}
+
 private fun sortLabel(mode: SortMode) =
     when (mode) {
         SortMode.Title -> "Title A-Z"
@@ -200,7 +235,8 @@ private fun LibraryTopBar(
     onSortModeChange: (SortMode) -> Unit,
     onSearchQueryChange: (String) -> Unit,
 ) {
-    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+    // A query is already in hand when the library was opened on an author, so start open on it.
+    var searchExpanded by rememberSaveable { mutableStateOf(searchQuery.isNotBlank()) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
     Row(

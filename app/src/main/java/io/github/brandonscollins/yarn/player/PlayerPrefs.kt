@@ -2,14 +2,39 @@ package io.github.brandonscollins.yarn.player
 
 import android.content.Context
 
-/** SharedPreferences-backed player settings. One global speed is enough for P0. */
+/** SharedPreferences-backed player settings. */
 class PlayerPrefs(context: Context) {
     private val prefs =
         context.applicationContext.getSharedPreferences("player_prefs", Context.MODE_PRIVATE)
 
+    /** The fallback speed: what a book with no remembered speed of its own starts at. */
     var speed: Float
         get() = prefs.getFloat(KEY_SPEED, 1f)
         set(value) = prefs.edit().putFloat(KEY_SPEED, value).apply()
+
+    /**
+     * Per-book speed, so fiction at 1.2x and nonfiction at 1.8x each stick. A preference, not
+     * library data, which is why it lives here and not in a Room column.
+     *
+     * ponytail: one key per book, never pruned — a few bytes per book listened to, invisible next
+     * to the Room cache. Prune alongside the ledger row if a library ever gets big enough to care.
+     */
+    fun speedFor(bookId: Int): Float = prefs.getFloat("$KEY_SPEED_BOOK$bookId", speed)
+
+    fun setSpeedFor(
+        bookId: Int,
+        value: Float,
+    ) = prefs.edit().putFloat("$KEY_SPEED_BOOK$bookId", value).apply()
+
+    /** Rewind-on-resume: [REWIND_OFF], [REWIND_FIXED] or [REWIND_SMART]. */
+    var rewindMode: Int
+        get() = prefs.getInt(KEY_REWIND_MODE, REWIND_OFF)
+        set(value) = prefs.edit().putInt(KEY_REWIND_MODE, value).apply()
+
+    /** How far [REWIND_FIXED] jumps back. */
+    var fixedRewindSec: Int
+        get() = prefs.getInt(KEY_REWIND_FIXED_SEC, 30)
+        set(value) = prefs.edit().putInt(KEY_REWIND_FIXED_SEC, value).apply()
 
     /** Auto sleep window — PRD "Sleep-window spec". */
     var autoSleepEnabled: Boolean
@@ -50,6 +75,9 @@ class PlayerPrefs(context: Context) {
 
     private companion object {
         const val KEY_SPEED = "speed"
+        const val KEY_SPEED_BOOK = "speed_book_"
+        const val KEY_REWIND_MODE = "rewind_mode"
+        const val KEY_REWIND_FIXED_SEC = "rewind_fixed_sec"
         const val KEY_AUTO_SLEEP = "auto_sleep_enabled"
         const val KEY_WINDOW_START = "window_start_minutes"
         const val KEY_WINDOW_END = "window_end_minutes"

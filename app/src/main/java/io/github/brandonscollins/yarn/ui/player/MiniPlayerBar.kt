@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
+import io.github.brandonscollins.yarn.ui.common.bookRemainingMs
+import io.github.brandonscollins.yarn.ui.common.formatRemaining
 import io.github.brandonscollins.yarn.ui.common.thumbUri
 
 /** Tiny bar shown above the bottom nav on Home/Library/Book detail whenever a session exists. */
@@ -49,6 +51,17 @@ fun MiniPlayerBar(
     val book by produceState<Audiobook?>(initialValue = null, bookId) {
         value = null
         bookId?.let { id -> db.bookDao().getBook(id).collect { value = it } }
+    }
+    // "4h 20m left" for the whole book. Keyed to the minute and read off the ledger row rather
+    // than the live position: the label has minute resolution, so it costs two Room queries a
+    // minute instead of one per position update.
+    val remaining by produceState<String?>(null, book, positionMs / 60_000L) {
+        value =
+            book?.let { current ->
+                db.positionDao().getPosition(current.id)
+                    ?.let { bookRemainingMs(db, current, it) }
+                    ?.let(::formatRemaining)
+            }
     }
 
     Surface(
@@ -74,13 +87,22 @@ fun MiniPlayerBar(
                     contentDescription = null,
                     modifier = Modifier.size(48.dp).clip(MaterialTheme.shapes.small),
                 )
-                Text(
-                    text = book?.title.orEmpty(),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                )
+                Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                    Text(
+                        text = book?.title.orEmpty(),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    remaining?.let {
+                        Text(
+                            text = it,
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 IconButton(onClick = { if (isPlaying) controller.pause() else controller.play() }) {
                     Icon(
                         if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,

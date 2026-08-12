@@ -62,11 +62,15 @@ class LibrarySyncRepo(
                 }
         db.collectionDao().upsertAll(collections)
 
+        // Position in the response is the collection's own order on the server (release date by
+        // default, or whatever the user dragged it into) — the only series order Plex will tell us.
         val crossRefs =
             collections.flatMap { collection ->
                 api.mediaService.retrieveBooksInCollection(collection.id).mediaContainer.metadata
                     .mapNotNull { it.ratingKey.toIntOrNull() }
-                    .map { BookCollectionCrossRef(bookId = it, collectionId = collection.id) }
+                    .mapIndexed { ordinal, bookId ->
+                        BookCollectionCrossRef(bookId, collection.id, ordinal)
+                    }
             }
         db.collectionDao().upsertCrossRefs(crossRefs)
     }

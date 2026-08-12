@@ -35,17 +35,56 @@ pairs with the deferred reconnect work below (same plumbing).
 
 **Milestone 5 — Remaining player polish.**
 
-- [ ] Rewind-on-resume: fixed (1 min) or smart (scaled by pause length).
-      Never built; it's in the PRD's P1 table.
+- [ ] **Chapter compatibility — make ticks work for every book shape.** Today
+      ticks come from track boundaries only, which covers multi-file books and
+      leaves single-file books (one big MP3, or an M4B) with none. Goal is
+      chapters wherever the data exists, in rough order of payoff:
+      1. Ask Plex first. Check whether the server exposes chapters on tracks
+         (a `Chapter` element / `chapterSource` on the metadata, as it does for
+         movies) before parsing anything locally — if it does, this is a model
+         field and a sync change, and nothing else here is needed.
+      2. ID3 `CHAP`/`CTOC` for MP3. media3 already decodes these
+         (`androidx.media3.extractor.metadata.id3.ChapterFrame` /
+         `ChapterTocFrame`) but delivers them as *timed* metadata during
+         playback, so it needs a service→UI channel — or a one-off
+         `MetadataRetriever` pass at book open, cached in Room.
+      3. M4B / MP4 `chpl` + the QuickTime chapter text track. media3 parses
+         neither; this is the only part that means writing a real parser.
+      Cache whatever is found (a `chapters` table keyed by trackId) so it is
+      resolved once per book, not per open. The scrub bar already draws ticks
+      from a list of absolute offsets, so all three paths feed the same UI.
 - [ ] Android Auto (mostly config now that `MediaSessionService` is correct)
-- [ ] Recents / finished shelf / listening stats (Plex `lastViewedAt` and
-      view counts are already synced; stats need a local play-time log)
-- [ ] Chapter ticks on the scrub bar
+- [ ] Listening stats (needs a local play-time log — the only part of the old
+      "recents / finished / stats" line still outstanding)
 
-**Parking lot.** Bookmarks with notes, per-book speed memory, skip silence.
+**Parking lot.** Bookmarks with notes, skip silence.
+
+## Shipped (2026-08-12) — the UX batch
+
+Home: "Recently played" shelf (5, structurally excluding the Continue
+listening book) plus a `RECENTLY_PLAYED` view-all screen; time remaining
+(`formatRemaining`) on the cards and in the mini player; a "Finished" shelf;
+"Up next" from the next unstarted book in the current book's collection.
+Player: book-level scrub bar with chapter ticks at track boundaries;
+rewind-on-resume (off / fixed / smart, smart = pause ÷ 10 capped at 60s, 10s
+deadband); per-book speed memory; "end of chapter" sleep option.
+Library/detail: mark finished / unplayed, All / In progress / Not started /
+Finished filter chips, tappable author. Plus a "Resume" launcher shortcut.
+
+Schema went 3 → 5: `playback_positions.finished` (ADR-008) and
+`book_collection_cross_ref.ordinal`, both additive migrations.
 
 ## Known deferred issues (deliberate, from the review passes)
 
+- "Mark as unplayed" clears Plex with a best-effort timeline sweep at `time=0`
+  rather than `/:/unscrobble` drained by the outbox. Marked unplayed with the
+  server unreachable, the local clear holds only until the next `syncTracks`.
+  Upgrade: add `unscrobble` to `PlexMediaService` plus an `unplayedPending`
+  column, drained by `ProgressSyncWorker` exactly like `finishedPending`.
+- Per-book speed keys in `PlayerPrefs` are never pruned, so a removed book
+  leaves its key behind.
+- A book in several collections answers "Up next" from whichever peer list
+  comes first, and equal `ordinal`s match nothing.
 - `onDestroy`'s ledger write is async — a hard kill immediately after can
   drop it. Bounded by the 10s tick and the pause write; the alternative is
   `runBlocking` on the main thread, which trades a rare loss for an ANR.
@@ -75,3 +114,34 @@ release build needs: a keystore **you** generate (`keytool -genkey -v
 reading that file, and `isMinifyEnabled = true` on the release build type.
 R8 will also strip the unused `material-icons-extended` glyphs, which is most
 of the current ~66 MB APK.
+
+## Making updates less janky (not started, deliberately parked)
+
+Today an update means building on the Mac and hand-carrying the APK to the
+phone. A "Settings → check for updates" button that pulls from GitHub is very
+doable — the repo is public, so the releases API needs no token — but it can't
+be built first. In order:
+
+1. **The keystore is the real prerequisite, not polish.** Android refuses an
+   update signed with a different key than the installed app, and the current
+   debug key is the auto-generated machine-local `~/.android/debug.keystore`.
+   Build on another machine, or lose that file, and the only way to install is
+   uninstall-first — which wipes Room and the position ledger with it. See the
+   section above.
+2. `versionCode` is hardcoded to `1` and never bumped, while `versionName`
+   comes from `appVersionName`. The installer decides what counts as an
+   upgrade from `versionCode`, so derive it from the same constant.
+3. Publish the APK as a GitHub release — `gh release create` after a local
+   build, or an Actions workflow on a tag push (that one needs the keystore as
+   a base64 repo secret).
+4. Only then the client half: ~100 lines in Settings hitting
+   `/repos/brandonscollins/yarn-audiobook-player/releases/latest`, comparing
+   `tag_name` to `BuildConfig.VERSION_NAME`, downloading the asset with the
+   OkHttp client that already exists, and handing it to the system installer
+   via a `FileProvider` plus the `REQUEST_INSTALL_PACKAGES` permission.
+
+Worth knowing before building it: Android always shows its own install
+confirmation for a sideloaded app, so the ceiling is "check → download → tap
+Install", never a silent overnight update. **Obtainium** (FOSS, watches a repo's
+releases) gets the same result with no code in Yarn at all, and still needs
+step 1 — it only replaces step 4.

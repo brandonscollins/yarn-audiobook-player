@@ -34,6 +34,9 @@ const val COMMAND_ARM_SLEEP = "yarn.ARM_SLEEP"
 const val COMMAND_CANCEL_SLEEP = "yarn.CANCEL_SLEEP"
 const val KEY_SLEEP_DURATION_MS = "yarn.sleepDurationMs"
 
+/** Sentinel duration for [COMMAND_ARM_SLEEP]: stop at the end of the chapter, not after N minutes. */
+const val SLEEP_END_OF_CHAPTER = -1L
+
 const val COMMAND_SET_BOOST = "yarn.SET_BOOST"
 const val COMMAND_SET_EQ_ENABLED = "yarn.SET_EQ_ENABLED"
 const val COMMAND_SET_EQ_PRESET = "yarn.SET_EQ_PRESET"
@@ -75,6 +78,9 @@ class PlaybackService : MediaSessionService() {
 
     private var sleepSuppressed = false
     private var pausedAtElapsedMs = 0L
+
+    /** A queue just set by `PlayerController.playBook` arrives already positioned, rewind included. */
+    private var queuePositioned = false
 
     override fun onCreate() {
         super.onCreate()
@@ -136,10 +142,12 @@ class PlaybackService : MediaSessionService() {
      */
     private fun writeLedger(state: String) {
         val item = player.currentMediaItem ?: return
-        val bookId = item.mediaMetadata.extras?.getInt(EXTRA_BOOK_ID) ?: return
+        val bookId = currentBookId() ?: return
         val trackId = item.mediaId.toIntOrNull() ?: return
         ledger.record(bookId, trackId, player.currentPosition.coerceAtLeast(0), state)
     }
+
+    private fun currentBookId(): Int? = player.currentMediaItem?.mediaMetadata?.extras?.getInt(EXTRA_BOOK_ID)
 
     private fun startLedgerTick() {
         tickJob?.cancel()
@@ -150,6 +158,23 @@ class PlaybackService : MediaSessionService() {
                     writeLedger(ProgressSyncWorker.STATE_PLAYING)
                 }
             }
+    }
+
+    /**
+     * Rewind-on-resume (PRD P1) for a resume inside this process, where [pausedAtElapsedMs] is the
+     * pause clock — monotonic and inclusive of device sleep, so a phone in a pocket all night still
+     * measures the whole night. A resume *after* the process died gets its rewind in
+     * `PlayerController.playBook` instead, off the ledger row's durable timestamp.
+     */
+    private fun maybeRewindOnResume() {
+        if (queuePositioned || pausedAtElapsedMs == 0L) return
+        val rewindMs =
+            rewindOnResumeMs(
+                prefs.rewindMode,
+                SystemClock.elapsedRealtime() - pausedAtElapsedMs,
+                prefs.fixedRewindSec * 1_000L,
+            )
+        if (rewindMs > 0) player.seekWithinBook(-rewindMs)
     }
 
     /**
@@ -198,13 +223,20 @@ class PlaybackService : MediaSessionService() {
             // silently restart a running timer. playWhenReady only moves when playback is actually
             // asked to start or stop — by the UI, the notification, a media button or bluetooth,
             // all of which reach Player.play() through the session, so one hook covers them all.
-            if (playWhenReady) maybeArmSleepWindow()
+            if (playWhenReady) {
+                maybeRewindOnResume()
+                maybeArmSleepWindow()
+                queuePositioned = false
+            }
         }
 
         override fun onMediaItemTransition(
             mediaItem: MediaItem?,
             reason: Int,
         ) {
+            // A whole new queue means the caller chose the start position; anything else (an
+            // automatic roll into the next file) leaves the rewind rule alone.
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) queuePositioned = true
             // Ledger trigger: track transition. The new item's position is the resume point now.
             writeLedger(
                 if (player.isPlaying) {
@@ -227,7 +259,10 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            // Every speed change lands here whatever set it, so this is the one place per-book
+            // memory has to be written. The global stays the fallback a new book starts from.
             prefs.speed = playbackParameters.speed
+            currentBookId()?.let { prefs.setSpeedFor(it, playbackParameters.speed) }
         }
     }
 
@@ -257,7 +292,12 @@ class PlaybackService : MediaSessionService() {
         ): ListenableFuture<SessionResult> =
             when (customCommand.customAction) {
                 COMMAND_ARM_SLEEP -> {
-                    sleepTimer.arm(args.getLong(KEY_SLEEP_DURATION_MS))
+                    val durationMs = args.getLong(KEY_SLEEP_DURATION_MS)
+                    if (durationMs == SLEEP_END_OF_CHAPTER) {
+                        sleepTimer.armEndOfChapter()
+                    } else {
+                        sleepTimer.arm(durationMs)
+                    }
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 COMMAND_CANCEL_SLEEP -> {

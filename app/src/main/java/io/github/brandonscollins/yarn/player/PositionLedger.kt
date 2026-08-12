@@ -47,6 +47,7 @@ class PositionLedger(context: Context) {
                     updatedAtEpochMs = System.currentTimeMillis(),
                     syncedToPlex = false,
                     finishedPending = previous?.finishedPending == true,
+                    finished = previous?.finished == true,
                 ),
             )
             // Everything below runs only after the position itself is on disk.
@@ -78,6 +79,6 @@ class PositionLedger(context: Context) {
             previous != null &&
                 isBookFinished(tracks, bookDurationMs, previous.trackId, previous.positionMs)
         if (wasAlreadyThere) return
-        dao.markFinishedPending(bookId)
+        dao.setFinished(bookId, true)
     }
 }

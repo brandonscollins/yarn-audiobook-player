@@ -2,6 +2,7 @@ package io.github.brandonscollins.yarn.ui.library
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
 import io.github.brandonscollins.yarn.data.local.likePattern
@@ -29,7 +30,10 @@ import kotlinx.coroutines.launch
 data class BookRow(val book: Audiobook, val progress: Float?)
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
-class LibraryViewModel(app: Application) : AndroidViewModel(app) {
+class LibraryViewModel(
+    app: Application,
+    savedStateHandle: SavedStateHandle,
+) : AndroidViewModel(app) {
     private val db = PlexGraph.db(app)
     private val syncRepo = LibrarySyncRepo(PlexGraph.prefs(app), PlexGraph.api(app), db)
     private val libraryPrefs = LibraryPrefs(app)
@@ -39,6 +43,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _sortMode = MutableStateFlow(libraryPrefs.sortMode)
     val sortMode: StateFlow<SortMode> = _sortMode.asStateFlow()
+
+    private val _filterMode = MutableStateFlow(libraryPrefs.filterMode)
+    val filterMode: StateFlow<FilterMode> = _filterMode.asStateFlow()
 
     fun setViewMode(mode: ViewMode) {
         libraryPrefs.viewMode = mode
@@ -50,9 +57,19 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         _sortMode.value = mode
     }
 
+    fun setFilterMode(mode: FilterMode) {
+        libraryPrefs.filterMode = mode
+        _filterMode.value = mode
+    }
+
     val allBooks: StateFlow<List<BookRow>> =
-        combine(db.bookDao().getAllBooks(), db.positionDao().getAll(), sortMode) { books, positions, sort ->
-            rows(db, books, positions, sort)
+        combine(
+            db.bookDao().getAllBooks(),
+            db.positionDao().getAll(),
+            sortMode,
+            filterMode,
+        ) { books, positions, sort, filter ->
+            rows(db, books, positions, sort, filter)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val collections: StateFlow<List<Collection>> =
@@ -62,7 +79,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
-    private val _searchQuery = MutableStateFlow("")
+    /** Seeded from the route when the library is opened on an author (tapping one on a book). */
+    private val _searchQuery = MutableStateFlow(savedStateHandle.get<String>("query").orEmpty())
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     fun setSearchQuery(query: String) {
@@ -81,8 +99,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         db.bookDao().search(likePattern(query)),
                         db.positionDao().getAll(),
                         sortMode,
-                    ) { books, positions, sort ->
-                        rows(db, books, positions, sort)
+                        filterMode,
+                    ) { books, positions, sort, filter ->
+                        rows(db, books, positions, sort, filter)
                     }
                 }
             }
@@ -101,19 +120,39 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             db.bookDao().getBooksInCollection(collectionId),
             db.positionDao().getAll(),
             sortMode,
-        ) { books, positions, sort -> rows(db, books, positions, sort) }
+            filterMode,
+        ) { books, positions, sort, filter -> rows(db, books, positions, sort, filter) }
 }
 
+/** Filtering runs before [bookProgress], which is a Room query per started book (next_steps.md). */
 private suspend fun rows(
     db: YarnDatabase,
     books: List<Audiobook>,
     positions: List<PlaybackPosition>,
     sort: SortMode,
+    filter: FilterMode,
 ): List<BookRow> {
     val byBook = positions.associateBy { it.bookId }
-    val mapped = books.map { book -> BookRow(book, byBook[book.id]?.let { bookProgress(db, book, it) }) }
+    val mapped =
+        books.filter { matchesFilter(filter, byBook[it.id]) }
+            .map { book -> BookRow(book, byBook[book.id]?.let { bookProgress(db, book, it) }) }
     return sortRows(mapped, sort)
 }
+
+/**
+ * No ledger row means the book was never opened, so "not started" is the absence of a row rather
+ * than a position of zero. Finished is the durable column (ADR-008), not a guess from the offset.
+ */
+internal fun matchesFilter(
+    filter: FilterMode,
+    position: PlaybackPosition?,
+): Boolean =
+    when (filter) {
+        FilterMode.All -> true
+        FilterMode.InProgress -> position != null && !position.finished
+        FilterMode.NotStarted -> position == null
+        FilterMode.Finished -> position?.finished == true
+    }
 
 private fun sortRows(
     rows: List<BookRow>,

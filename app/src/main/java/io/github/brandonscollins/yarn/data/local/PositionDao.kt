@@ -18,13 +18,32 @@ interface PositionDao {
     @Query("SELECT * FROM playback_positions WHERE syncedToPlex = 0")
     suspend fun getUnsynced(): List<PlaybackPosition>
 
-    /** Flags the book as finished-but-not-yet-scrobbled. See [PlaybackPosition.finishedPending]. */
-    @Query("UPDATE playback_positions SET finishedPending = 1 WHERE bookId = :bookId")
-    suspend fun markFinishedPending(bookId: Int)
+    /**
+     * The one finish path — auto-finish and a manual "mark finished" both land here. Sets the
+     * durable flag and, in the same statement, the outbox flag that gets Plex told via
+     * `/:/scrobble`; clearing `syncedToPlex` is what makes the outbox look at an already-synced
+     * row again. Unmarking cancels an undelivered scrobble rather than leaving it queued.
+     */
+    @Query(
+        """
+        UPDATE playback_positions SET finished = :finished, finishedPending = :finished,
+            syncedToPlex = 0
+        WHERE bookId = :bookId
+        """,
+    )
+    suspend fun setFinished(
+        bookId: Int,
+        finished: Boolean,
+    )
+
+    /** "Mark as unplayed" — the ledger row is the progress, so dropping it is the whole operation. */
+    @Query("DELETE FROM playback_positions WHERE bookId = :bookId")
+    suspend fun clearPosition(bookId: Int)
 
     /**
      * Compare-and-set on [PlaybackPosition.updatedAtEpochMs]: a row the ledger has rewritten since
      * the outbox read it is left alone, so a newer position (or a newer finish) is never clobbered.
+     * Only the outbox flag clears here — [PlaybackPosition.finished] is durable.
      */
     @Query(
         """
@@ -40,6 +59,10 @@ interface PositionDao {
     /** For Home's "Continue listening" card. */
     @Query("SELECT * FROM playback_positions ORDER BY updatedAtEpochMs DESC LIMIT 1")
     fun getMostRecent(): Flow<PlaybackPosition?>
+
+    /** For Home's "recently played" row and its view-all screen. */
+    @Query("SELECT * FROM playback_positions ORDER BY updatedAtEpochMs DESC LIMIT :limit")
+    fun getRecent(limit: Int): Flow<List<PlaybackPosition>>
 
     /** For Library grid progress bars. */
     @Query("SELECT * FROM playback_positions")
