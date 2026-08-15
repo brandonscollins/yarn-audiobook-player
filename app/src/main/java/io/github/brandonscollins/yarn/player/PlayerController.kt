@@ -19,6 +19,7 @@ import io.github.brandonscollins.yarn.data.model.Track
 import io.github.brandonscollins.yarn.data.plex.LibrarySyncRepo
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.settings.PlexPrefs
+import io.github.brandonscollins.yarn.work.localUriResolves
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -100,14 +101,19 @@ class PlayerController(
     /** Loads the book's tracks from Room and starts at the furthest-ahead known position. */
     fun playBook(bookId: Int) {
         scope.launch {
-            // The stream URIs below are built from the chosen connection, so the race has to have
-            // settled first (gotcha #3); with no reachable server there is nothing to play.
-            PlexGraph.connections(appContext).ensureConnected()
-            if (plexPrefs.chosenServerUri.isEmpty()) return@launch
+            // A fully downloaded book needs no server at all — don't make offline playback wait
+            // out the connection race. Anything that will stream still races first (gotcha #3),
+            // because those URIs are built from the chosen connection.
+            val known = db.trackDao().getTracksForBook(bookId).first().map { verifiedLocal(bookId, it) }
+            val allLocal = known.isNotEmpty() && known.all { it.isCached && it.localUri != null }
+            if (!allLocal) {
+                PlexGraph.connections(appContext).ensureConnected()
+                if (plexPrefs.chosenServerUri.isEmpty()) return@launch
+            }
             // A book opened for the first time may still have its track sync in flight — without
             // this, tapping Play a beat too early was a silent no-op.
             val tracks =
-                db.trackDao().getTracksForBook(bookId).first().ifEmpty {
+                known.ifEmpty {
                     runCatching { syncRepo.syncTracks(bookId) }
                     db.trackDao().getTracksForBook(bookId).first()
                 }
@@ -124,7 +130,29 @@ class PlayerController(
                 c.prepare()
                 c.play()
             }
+            // Embedded chapters (one metadata request per track), fetched once per book — after
+            // play() so a slow server never delays the audio. Failure or a genuinely chapterless
+            // book leaves no rows, which just re-probes on the next open.
+            if (db.chapterDao().getChaptersForBook(bookId).first().isEmpty()) {
+                runCatching { syncRepo.syncChapters(bookId) }
+            }
         }
+    }
+
+    /**
+     * A downloaded track whose file was deleted behind our back (file managers can — the files are
+     * deliberately public) falls back to streaming, and Room is corrected so the UI agrees. Never
+     * touches the position ledger: where you were survives the source flipping either way.
+     */
+    private suspend fun verifiedLocal(
+        bookId: Int,
+        track: Track,
+    ): Track {
+        if (track.localUri == null || !track.isCached) return track
+        if (localUriResolves(appContext.contentResolver, track.localUri)) return track
+        db.trackDao().clearDownload(track.id)
+        db.bookDao().setCached(bookId, false)
+        return track.copy(isCached = false, localUri = null)
     }
 
     fun play() = controller?.play() ?: Unit
@@ -295,14 +323,20 @@ fun Player.seekWithinBook(deltaMs: Long) {
 /**
  * Plex accepts its token as a query param, which is why streaming needs no custom DataSource. The
  * URI also rides in [MediaItem.RequestMetadata] because MediaItems lose their local configuration
- * on the way to the service.
+ * on the way to the service. A downloaded track plays from its MediaStore copy instead — no
+ * network, no token.
  */
 private fun Track.toMediaItem(
     bookId: Int,
     prefs: PlexPrefs,
 ): MediaItem {
     val token = prefs.serverToken.ifEmpty { prefs.accountToken }
-    val uri = "${prefs.chosenServerUri}$partKey?X-Plex-Token=$token"
+    val uri =
+        if (isCached && localUri != null) {
+            localUri
+        } else {
+            "${prefs.chosenServerUri}$partKey?X-Plex-Token=$token"
+        }
     return MediaItem.Builder()
         .setMediaId(id.toString())
         .setUri(uri)

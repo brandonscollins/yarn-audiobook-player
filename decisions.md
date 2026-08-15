@@ -109,3 +109,47 @@ had the same latent bug.
 **Consequence:** Cross-device progress still wins on open, because the mirror is
 read before it is cleared. "Mark as unplayed" already zeroed the same mirror for
 the same reason.
+
+## ADR-010 — Downloads are plain public files via MediaStore, not app-private cache (2026-08-14)
+
+**Decision:** `DownloadWorker` (one unique WorkManager job per book,
+`download_book_<id>`, KEEP) streams each track to
+`Music/Yarn/<Book Title>/NN - Track Title.ext` through MediaStore
+(`VOLUME_EXTERNAL_PRIMARY`, `IS_PENDING` while writing), using the part URL
+with `?download=1` and the token as a query param — same style as streaming,
+no custom DataSource. `Track.localUri` (schema v6) stores the `content://`
+URI; it and `isCached` are set per track as each lands, so a retry or cancel
+resumes instead of restarting. The player prefers the local URI when it still
+resolves, silently clearing the columns and falling back to streaming when a
+file manager deleted the file. Remove deletes the MediaStore rows and clears
+the columns; the position ledger is never touched by any of it.
+**Why:** The explicit requirement was files other apps can see and manage —
+that rules out `filesDir`. On API 29+ MediaStore inserts into `Music/` need no
+storage permission.
+**Consequence:** MediaStore ownership is per *install*: after a reinstall the
+app can no longer delete its old rows, so "Remove download" leaves orphans a
+file manager must clean up. Accepted for a personal sideloaded app (noted as
+a `ponytail:` ceiling in `DownloadWorker`; upgrade path is SAF or
+`MANAGE_EXTERNAL_STORAGE`). A fully downloaded book also skips the connection
+race at open, so offline playback starts immediately.
+
+## ADR-011 — Chapters come from Plex `includeChapters=1`, cached in Room, fetched lazily (2026-08-14)
+
+**Decision:** Embedded chapters are asked of Plex before any local parsing:
+`GET /library/metadata/{trackId}?includeChapters=1` returns each track's
+`Chapter` elements, which `LibrarySyncRepo.syncChapters` maps into a `chapters`
+table (schema v7, `MIGRATION_6_7`, PK trackId+index, `startMs` is the offset
+within the track's own file). The fetch is lazy — `playBook` runs it, after
+`play()`, only when the book has no chapter rows — never from the regular
+library sync, which would cost N extra requests per book. The player merges
+rows with the track list into book-level absolute offsets (`bookChapters` in
+`player/Chapters.kt`); ticks and the Chapters sheet use those when present and
+fall back to track boundaries exactly as before. Blank Plex titles become
+"Chapter N".
+**Why:** Single-file books (one big MP3 or M4B) had no ticks and a one-row
+Chapters sheet, and the server often already knows the chapters — a model field
+and one endpoint beat writing ID3/`chpl` parsers.
+**Consequence:** Books whose files carry chapters Plex doesn't expose still
+show track boundaries; ID3 `CHAP` and M4B `chpl` parsing stay on Milestone 5
+as the remaining sub-paths. A genuinely chapterless book re-probes on each
+open (a handful of cheap requests, silently dropped offline).

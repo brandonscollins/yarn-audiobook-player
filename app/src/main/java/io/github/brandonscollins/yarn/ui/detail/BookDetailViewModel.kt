@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import io.github.brandonscollins.yarn.data.download.DownloadState
+import io.github.brandonscollins.yarn.data.download.Downloads
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.PlaybackPosition
 import io.github.brandonscollins.yarn.data.model.Track
@@ -39,6 +41,11 @@ class BookDetailViewModel(
     private val _position = MutableStateFlow<PlaybackPosition?>(null)
     val position: StateFlow<PlaybackPosition?> = _position.asStateFlow()
 
+    /** Queued/running plus how many tracks have landed; drives the menu wording and the ring. */
+    val downloadState: StateFlow<DownloadState> =
+        Downloads.observe(app, bookId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DownloadState())
+
     init {
         viewModelScope.launch {
             runCatching { syncRepo.syncTracks(bookId) }
@@ -69,6 +76,14 @@ class BookDetailViewModel(
             ProgressSyncWorker.enqueue(getApplication())
             _position.value = db.positionDao().getPosition(bookId)
         }
+    }
+
+    fun download() = Downloads.start(getApplication(), bookId)
+
+    fun cancelDownload() = Downloads.cancel(getApplication(), bookId)
+
+    fun removeDownload() {
+        viewModelScope.launch { Downloads.remove(getApplication(), bookId) }
     }
 
     /**

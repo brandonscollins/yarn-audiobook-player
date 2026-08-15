@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -21,33 +23,44 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay30
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,24 +73,38 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import io.github.brandonscollins.yarn.data.download.DownloadState
+import io.github.brandonscollins.yarn.data.download.Downloads
+import io.github.brandonscollins.yarn.data.local.nextUpNext
 import io.github.brandonscollins.yarn.data.model.Audiobook
+import io.github.brandonscollins.yarn.data.model.Chapter
 import io.github.brandonscollins.yarn.data.model.Track
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.player.SEEK_STEP_MS
 import io.github.brandonscollins.yarn.player.absolutePositionMs
+import io.github.brandonscollins.yarn.player.bookChapters
+import io.github.brandonscollins.yarn.player.nextChapterStart
+import io.github.brandonscollins.yarn.player.previousChapterStart
 import io.github.brandonscollins.yarn.player.resumePointAt
+import io.github.brandonscollins.yarn.ui.common.DownloadMenuItem
+import io.github.brandonscollins.yarn.ui.common.DownloadProgress
 import io.github.brandonscollins.yarn.ui.common.formatDuration
 import io.github.brandonscollins.yarn.ui.common.formatMmSs
 import io.github.brandonscollins.yarn.ui.common.thumbUri
 import kotlin.math.abs
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PlayerScreen(
     playerViewModel: PlayerViewModel,
     onBack: () -> Unit,
+    onOpenDetail: (Int) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val db = remember(context) { PlexGraph.db(context) }
     val prefs = remember(context) { PlexGraph.prefs(context) }
     val controller = playerViewModel.controller
@@ -99,29 +126,89 @@ fun PlayerScreen(
     }
     val currentTrack = tracks.getOrNull(trackIndex)
 
+    // Embedded chapters from Plex, cached in Room by playBook's lazy syncChapters. Empty for a
+    // book whose files carry none — everything below then falls back to track boundaries.
+    val chapterRows by produceState<List<Chapter>>(initialValue = emptyList(), bookId) {
+        value = emptyList()
+        bookId?.let { id -> db.chapterDao().getChaptersForBook(id).collect { value = it } }
+    }
+    val chapters = remember(tracks, chapterRows) { bookChapters(tracks, chapterRows) }
+
+    // Mirrors HomeViewModel.upNext: the next unstarted book of this one's series.
+    val upNext by produceState<Audiobook?>(initialValue = null, bookId) {
+        value = null
+        val id = bookId ?: return@produceState
+        val current = db.bookDao().getBook(id).first() ?: return@produceState
+        combine(
+            db.collectionDao().getCollectionPeers(id),
+            db.positionDao().getAll(),
+            db.bookDao().getAllBooks(),
+        ) { peers, positions, books ->
+            val started = positions.mapTo(mutableSetOf()) { it.bookId }
+            val peerIds = peers.mapTo(mutableSetOf()) { it.bookId }
+            nextUpNext(
+                current = current,
+                collectionPeers = books.filter { it.id in peerIds },
+                sameAuthorBooks = books.filter { it.author == current.author },
+                crossRefs = peers,
+                startedBookIds = started,
+            )?.let { nextId -> books.firstOrNull { it.id == nextId } }
+        }.collect { value = it }
+    }
+
+    val downloadState by produceState(DownloadState(), bookId) {
+        value = DownloadState()
+        bookId?.let { id -> Downloads.observe(context, id).collect { value = it } }
+    }
+
     var showChapters by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
     var showEq by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
     var dragPositionMs by remember { mutableStateOf<Float?>(null) }
 
-    // The scrub bar is book-level: a Plex audiobook's files are its chapters, so the track
-    // boundaries are what the ticks mark, and they only mean anything on a bar that spans the book.
-    //
-    // ponytail: track boundaries are the only chapters we know about, so a single-file book (one
-    // big MP3 or M4B) gets a plain bar. media3 hands ID3 chapter frames over as timed metadata
-    // during playback and doesn't parse MP4 `chpl` atoms at all, so embedded chapters would cost a
-    // service→UI metadata channel plus an atom parser. Worth it only if a single-file book lands.
+    // "Downloaded" is only worth saying to someone who watched it happen, so it fires on the
+    // running → finished edge, never on opening the Player at an already-downloaded book.
+    val snackbarHostState = remember { SnackbarHostState() }
+    var wasDownloading by remember(bookId) { mutableStateOf(false) }
+    LaunchedEffect(downloadState) {
+        if (wasDownloading && !downloadState.downloading && downloadState.downloaded) {
+            snackbarHostState.showSnackbar("Downloaded")
+        }
+        wasDownloading = downloadState.downloading
+    }
+
+    // The scrub bar is book-level. Ticks come from Plex's embedded chapters when the server has
+    // them (single-file books included), else from track boundaries — a multi-file book's files
+    // are its chapters. A single-file book with no embedded chapters gets a plain bar; ID3
+    // CHAP / MP4 `chpl` parsing is the remaining Milestone 5 work for those.
     val bookDurationMs = tracks.sumOf { it.durationMs }.takeIf { it > 0 } ?: durationMs
     val chapterFractions =
-        remember(tracks, bookDurationMs) {
-            if (tracks.size < 2 || bookDurationMs <= 0) {
-                emptyList()
-            } else {
-                tracks.dropLast(1)
-                    .runningFold(0L) { acc, track -> acc + track.durationMs }
-                    .drop(1)
-                    .map { it.toFloat() / bookDurationMs }
+        remember(tracks, chapters, bookDurationMs) {
+            when {
+                bookDurationMs <= 0 -> emptyList()
+                chapters.isNotEmpty() ->
+                    chapters.map { it.startMs.toFloat() / bookDurationMs }.filter { it > 0f && it < 1f }
+                tracks.size < 2 -> emptyList()
+                else ->
+                    tracks.dropLast(1)
+                        .runningFold(0L) { acc, track -> acc + track.durationMs }
+                        .drop(1)
+                        .map { it.toFloat() / bookDurationMs }
+            }
+        }
+
+    // Absolute starts the chapter-skip buttons step between — embedded chapters where the book has
+    // them, else one per track, since a multi-file book's files are its chapters. Neither: no
+    // buttons, rather than two dead ones.
+    val chapterStarts =
+        remember(tracks, chapters) {
+            when {
+                chapters.isNotEmpty() -> chapters.map { it.startMs }
+                tracks.size < 2 -> emptyList()
+                else ->
+                    tracks.runningFold(0L) { acc, track -> acc + track.durationMs }.dropLast(1)
             }
         }
 
@@ -134,9 +221,43 @@ fun PlayerScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    DownloadProgress(downloadState)
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                    }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        val id = bookId
+                        DownloadMenuItem(
+                            state = downloadState,
+                            onDownload = {
+                                id?.let { Downloads.start(context, it) }
+                                menuExpanded = false
+                            },
+                            onCancel = {
+                                id?.let { Downloads.cancel(context, it) }
+                                menuExpanded = false
+                            },
+                            onRemove = {
+                                // A remove torn off by navigation self-heals: PlayerController
+                                // clears any localUri that no longer opens and streams instead.
+                                id?.let { scope.launch { Downloads.remove(context, it) } }
+                                menuExpanded = false
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Book details") },
+                            onClick = {
+                                menuExpanded = false
+                                id?.let(onOpenDetail)
+                            },
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             // Top half: cover + titles.
@@ -190,13 +311,38 @@ fun PlayerScreen(
                         dragPositionMs = null
                     },
                 )
-                Row(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
                         formatDuration(sliderPosition.toLong()),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.weight(1f))
+                    // The chapter steps sit under the ticks they move between: the transport row
+                    // below is already 244dp of fixed-width controls, with nothing left for two
+                    // more buttons on a 360dp screen.
+                    if (chapterStarts.isNotEmpty()) {
+                        val seekTo = { target: Long ->
+                            val point = resumePointAt(tracks, target)
+                            controller.seekToTrack(point.trackIndex, point.positionMs)
+                        }
+                        ChapterSkip(
+                            icon = Icons.Filled.SkipPrevious,
+                            description = "Previous chapter",
+                            targetMs = previousChapterStart(chapterStarts, absoluteMs),
+                            onSeek = seekTo,
+                        )
+                        ChapterSkip(
+                            icon = Icons.Filled.SkipNext,
+                            description = "Next chapter",
+                            targetMs = nextChapterStart(chapterStarts, absoluteMs),
+                            onSeek = seekTo,
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                     Text(
                         formatDuration(bookDurationMs),
                         style = MaterialTheme.typography.labelMedium,
@@ -230,10 +376,10 @@ fun PlayerScreen(
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     ControlPill(
                         icon = Icons.Filled.Speed,
@@ -259,6 +405,38 @@ fun PlayerScreen(
                         onClick = { showEq = true },
                     )
                 }
+
+                upNext?.let { next ->
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier =
+                            Modifier.fillMaxWidth()
+                                .clip(MaterialTheme.shapes.medium)
+                                .clickable { controller.playBook(next.id) }
+                                .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Up next",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                next.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
@@ -267,26 +445,32 @@ fun PlayerScreen(
     if (showChapters) {
         ModalBottomSheet(onDismissRequest = { showChapters = false }) {
             LazyColumn(modifier = Modifier.fillMaxHeight(0.8f)) {
-                itemsIndexed(tracks) { index, track ->
-                    ListItem(
-                        headlineContent = { Text(track.title, style = MaterialTheme.typography.titleSmall) },
-                        trailingContent = { Text(formatDuration(track.durationMs)) },
-                        colors =
-                            if (index == trackIndex) {
-                                ListItemDefaults.colors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    headlineColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    trailingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
-                            } else {
-                                ListItemDefaults.colors(containerColor = Color.Transparent)
-                            },
-                        modifier =
-                            Modifier.clickable {
-                                controller.seekToTrack(index)
-                                showChapters = false
-                            },
-                    )
+                if (chapters.isNotEmpty()) {
+                    // Current chapter = the last one starting at or before the playhead.
+                    val absoluteNowMs = absolutePositionMs(tracks, trackIndex, positionMs)
+                    val currentChapter = chapters.indexOfLast { it.startMs <= absoluteNowMs }
+                    itemsIndexed(chapters) { index, chapter ->
+                        ChapterRow(
+                            title = chapter.title,
+                            trailing = formatDuration(chapter.startMs),
+                            current = index == currentChapter,
+                        ) {
+                            val target = resumePointAt(tracks, chapter.startMs)
+                            controller.seekToTrack(target.trackIndex, target.positionMs)
+                            showChapters = false
+                        }
+                    }
+                } else {
+                    itemsIndexed(tracks) { index, track ->
+                        ChapterRow(
+                            title = track.title,
+                            trailing = formatDuration(track.durationMs),
+                            current = index == trackIndex,
+                        ) {
+                            controller.seekToTrack(index)
+                            showChapters = false
+                        }
+                    }
                 }
             }
         }
@@ -310,6 +494,34 @@ fun PlayerScreen(
     if (showEq) {
         EqSheet(controller = controller, onDismiss = { showEq = false })
     }
+}
+
+/**
+ * One row of the chapters sheet — an embedded chapter or, in the fallback, a track. [trailing] is
+ * the chapter's start time in the book (or the track's duration), and the current row is gold.
+ */
+@Composable
+private fun ChapterRow(
+    title: String,
+    trailing: String,
+    current: Boolean,
+    onClick: () -> Unit,
+) {
+    ListItem(
+        headlineContent = { Text(title, style = MaterialTheme.typography.titleSmall) },
+        trailingContent = { Text(trailing) },
+        colors =
+            if (current) {
+                ListItemDefaults.colors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    headlineColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    trailingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            } else {
+                ListItemDefaults.colors(containerColor = Color.Transparent)
+            },
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }
 
 /**
@@ -352,6 +564,31 @@ private fun ChapterSlider(
                 )
             }
         }
+    }
+}
+
+/**
+ * A chapter step: quiet on purpose, so it reads as navigation next to the scrub bar rather than
+ * competing with the transport controls. Disabled at the ends of the book, where there is nowhere
+ * to step to.
+ */
+@Composable
+private fun ChapterSkip(
+    icon: ImageVector,
+    description: String,
+    targetMs: Long?,
+    onSeek: (Long) -> Unit,
+) {
+    IconButton(
+        onClick = { targetMs?.let(onSeek) },
+        enabled = targetMs != null,
+        colors =
+            IconButtonDefaults.iconButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+        modifier = Modifier.size(32.dp),
+    ) {
+        Icon(icon, contentDescription = description, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -400,7 +637,7 @@ private fun ControlPill(
             },
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))

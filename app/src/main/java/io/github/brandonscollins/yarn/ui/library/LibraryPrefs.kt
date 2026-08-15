@@ -7,8 +7,12 @@ enum class ViewMode { Grid, List, ListCompact }
 
 enum class SortMode { Title, RecentlyAdded, RecentlyPublished }
 
-/** Progress filter. "Not started" means no ledger row at all, not a row sitting at zero. */
-enum class FilterMode { All, InProgress, NotStarted, Finished }
+/**
+ * Progress filter. "Not started" means no ledger row at all, not a row sitting at zero. Downloaded
+ * is the odd one out — it reads the book's cache state, not the ledger. Persisted by ordinal, so
+ * new cases go on the end.
+ */
+enum class FilterMode { All, InProgress, NotStarted, Finished, Downloaded }
 
 /** SharedPreferences-backed library UI state — view mode, sort and filter, sticky across sessions. */
 class LibraryPrefs(context: Context) {

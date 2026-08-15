@@ -7,8 +7,8 @@ plugins {
 }
 
 // One version string, used for both the app's versionName and the artifact name, so the
-// build lands at yarn-1.0-debug.apk instead of app-debug.apk.
-val appVersionName = "1.0"
+// build lands at yarn-<version>-debug.apk instead of app-debug.apk.
+val appVersionName = "1.2"
 
 base.archivesName = "yarn-$appVersionName"
 

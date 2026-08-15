@@ -16,4 +16,6 @@ data class Track(
     val sizeBytes: Long,
     val viewOffsetMs: Long,
     val isCached: Boolean = false,
+    /** MediaStore `content://` URI of the downloaded copy; set together with [isCached]. */
+    val localUri: String? = null,
 )

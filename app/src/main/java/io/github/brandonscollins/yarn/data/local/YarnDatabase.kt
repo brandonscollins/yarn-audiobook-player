@@ -6,6 +6,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.BookCollectionCrossRef
+import io.github.brandonscollins.yarn.data.model.Chapter
 import io.github.brandonscollins.yarn.data.model.Collection
 import io.github.brandonscollins.yarn.data.model.PlaybackPosition
 import io.github.brandonscollins.yarn.data.model.Track
@@ -17,8 +18,9 @@ import io.github.brandonscollins.yarn.data.model.Track
         Collection::class,
         BookCollectionCrossRef::class,
         PlaybackPosition::class,
+        Chapter::class,
     ],
-    version = 5,
+    version = 7,
     exportSchema = false,
 )
 abstract class YarnDatabase : RoomDatabase() {
@@ -29,6 +31,8 @@ abstract class YarnDatabase : RoomDatabase() {
     abstract fun collectionDao(): CollectionDao
 
     abstract fun positionDao(): PositionDao
+
+    abstract fun chapterDao(): ChapterDao
 }
 
 /**
@@ -74,6 +78,27 @@ val MIGRATION_4_5 =
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "ALTER TABLE book_collection_cross_ref ADD COLUMN ordinal INTEGER NOT NULL DEFAULT 0",
+            )
+        }
+    }
+
+/** Adds `localUri` (MediaStore URI of a downloaded track); NULL means not downloaded. */
+val MIGRATION_5_6 =
+    object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE tracks ADD COLUMN localUri TEXT")
+        }
+    }
+
+/** Adds the `chapters` cache — embedded chapters as Plex reports them, fetched lazily per book. */
+val MIGRATION_6_7 =
+    object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `chapters` (" +
+                    "`trackId` INTEGER NOT NULL, `bookId` INTEGER NOT NULL, " +
+                    "`index` INTEGER NOT NULL, `title` TEXT NOT NULL, " +
+                    "`startMs` INTEGER NOT NULL, PRIMARY KEY(`trackId`, `index`))",
             )
         }
     }

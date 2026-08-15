@@ -46,6 +46,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
+import io.github.brandonscollins.yarn.ui.common.DownloadMenuItem
+import io.github.brandonscollins.yarn.ui.common.DownloadProgress
 import io.github.brandonscollins.yarn.ui.common.formatDuration
 import io.github.brandonscollins.yarn.ui.common.thumbUri
 import io.github.brandonscollins.yarn.ui.player.PlayerViewModel
@@ -64,6 +66,7 @@ fun BookDetailScreen(
     val book by viewModel.book.collectAsState()
     val tracks by viewModel.tracks.collectAsState()
     val position by viewModel.position.collectAsState()
+    val download by viewModel.downloadState.collectAsState()
     var menuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -78,6 +81,7 @@ fun BookDetailScreen(
                     }
                 },
                 actions = {
+                    DownloadProgress(download)
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "More")
                     }
@@ -94,6 +98,21 @@ fun BookDetailScreen(
                             text = { Text("Mark as unplayed") },
                             onClick = {
                                 viewModel.markUnplayed()
+                                menuExpanded = false
+                            },
+                        )
+                        DownloadMenuItem(
+                            state = download,
+                            onDownload = {
+                                viewModel.download()
+                                menuExpanded = false
+                            },
+                            onCancel = {
+                                viewModel.cancelDownload()
+                                menuExpanded = false
+                            },
+                            onRemove = {
+                                viewModel.removeDownload()
                                 menuExpanded = false
                             },
                         )

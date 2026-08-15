@@ -24,10 +24,14 @@ local search over the Room cache; the paper-and-ink design identity
 **Milestone 4 — Downloads.** The biggest remaining feature, and the one that
 pairs with the deferred reconnect work below (same plumbing).
 
-- [ ] WorkManager download of a book's tracks (`?download=1` + token header)
-- [ ] Player source resolution: local file if present, else stream
-- [ ] Download state badges in library (the `isCached` column already exists
-      on both `Audiobook` and `Track` and is carried across syncs)
+- [x] WorkManager download of a book's tracks (`?download=1` + token as query
+      param) — `DownloadWorker`, one unique job per book, stored as plain
+      audio files in public `Music/Yarn/<Book Title>/` via MediaStore (ADR-010)
+- [x] Player source resolution: local file if present (verified to still
+      exist at book open, falling back to streaming if not), else stream
+- [x] Download state badges in library + Download / Cancel / Remove in the
+      book detail overflow menu (`Track.localUri` is schema v6; both cached
+      columns are carried across syncs)
 - [ ] Do the mid-session reconnect with it: a `DataSource.Factory` resolving
       the base URL per request, plus a re-race on `IOException`. Today a
       LAN→relay move mid-session leaves the queue pointing at a dead URI,
@@ -39,10 +43,12 @@ pairs with the deferred reconnect work below (same plumbing).
       ticks come from track boundaries only, which covers multi-file books and
       leaves single-file books (one big MP3, or an M4B) with none. Goal is
       chapters wherever the data exists, in rough order of payoff:
-      1. Ask Plex first. Check whether the server exposes chapters on tracks
-         (a `Chapter` element / `chapterSource` on the metadata, as it does for
-         movies) before parsing anything locally — if it does, this is a model
-         field and a sync change, and nothing else here is needed.
+      1. [x] Ask Plex first — **done (2026-08-14, ADR-011).** Per-track
+         metadata with `includeChapters=1` exposes any `Chapter` elements the
+         server extracted; cached in the `chapters` table (schema v7), fetched
+         lazily by `playBook` when a book has no rows, driving ticks and the
+         Chapters sheet with track boundaries as the fallback. The two paths
+         below remain for books where Plex itself has no chapter data.
       2. ID3 `CHAP`/`CTOC` for MP3. media3 already decodes these
          (`androidx.media3.extractor.metadata.id3.ChapterFrame` /
          `ChapterTocFrame`) but delivers them as *timed* metadata during

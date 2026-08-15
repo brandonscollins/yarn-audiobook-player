@@ -210,7 +210,11 @@ fun YarnApp(startDestination: String) {
                 )
             }
             composable(Routes.PLAYER) {
-                PlayerScreen(playerViewModel = playerViewModel, onBack = { navController.popBackStack() })
+                PlayerScreen(
+                    playerViewModel = playerViewModel,
+                    onBack = { navController.popBackStack() },
+                    onOpenDetail = { bookId -> navController.navigate(Routes.bookDetail(bookId)) },
+                )
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(

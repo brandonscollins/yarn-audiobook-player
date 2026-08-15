@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ViewHeadline
@@ -195,6 +196,7 @@ private fun filterLabel(mode: FilterMode) =
         FilterMode.InProgress -> "In progress"
         FilterMode.NotStarted -> "Not started"
         FilterMode.Finished -> "Finished"
+        FilterMode.Downloaded -> "Downloaded"
     }
 
 /** Always visible, unlike the sort menu: a filtered library that looks unfiltered is a bug report. */
@@ -405,14 +407,31 @@ private fun BookGridItem(
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.padding(top = 6.dp),
         )
-        Text(
-            row.book.author,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                row.book.author,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (row.book.isCached) {
+                DownloadedBadge(modifier = Modifier.padding(start = 4.dp))
+            }
+        }
     }
+}
+
+/** Small "this book is downloaded" mark, shared by every library view mode. */
+@Composable
+private fun DownloadedBadge(modifier: Modifier = Modifier) {
+    Icon(
+        Icons.Filled.DownloadDone,
+        contentDescription = "Downloaded",
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.size(14.dp),
+    )
 }
 
 /** One row in List/ListCompact mode: optional thumbnail, title, author + duration, progress. */
@@ -457,6 +476,9 @@ private fun BookListRow(
                 Spacer(modifier = Modifier.height(4.dp))
                 ThinProgressBar(it)
             }
+        }
+        if (row.book.isCached) {
+            DownloadedBadge(modifier = Modifier.padding(start = 8.dp))
         }
     }
 }

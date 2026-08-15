@@ -3,6 +3,7 @@ package io.github.brandonscollins.yarn.data.plex
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.BookCollectionCrossRef
+import io.github.brandonscollins.yarn.data.model.Chapter
 import io.github.brandonscollins.yarn.data.model.Track
 import io.github.brandonscollins.yarn.data.model.Collection as BookCollection
 import io.github.brandonscollins.yarn.data.plex.model.PlexMetadata
@@ -79,13 +80,41 @@ class LibrarySyncRepo(
         val cached =
             db.trackDao().getTracksForBook(bookId).first()
                 .filter { it.isCached }
-                .mapTo(mutableSetOf()) { it.id }
+                .associateBy { it.id }
         val tracks =
             api.mediaService.retrieveTracksForAlbum(bookId).mediaContainer.metadata
                 .mapNotNull { meta ->
-                    meta.ratingKey.toIntOrNull()?.let { meta.toTrack(it, bookId, it in cached) }
+                    meta.ratingKey.toIntOrNull()?.let { meta.toTrack(it, bookId, cached[it]) }
                 }
         db.trackDao().upsertAll(tracks)
+    }
+
+    /**
+     * Embedded chapters, as Plex reports them with `includeChapters=1` on per-track metadata.
+     * One request per track, so this is called lazily at book open — never from [sync], which
+     * would turn every library refresh into N-per-book requests. All-or-nothing: a failed fetch
+     * throws before the delete, leaving whatever was cached.
+     */
+    suspend fun syncChapters(bookId: Int) {
+        val tracks = db.trackDao().getTracksForBook(bookId).first()
+        var n = 0
+        val chapters =
+            tracks.flatMap { track ->
+                api.mediaService.retrieveTrackMetadata(track.id).mediaContainer.metadata
+                    .firstOrNull()?.chapters.orEmpty()
+                    .mapIndexed { i, chapter ->
+                        n += 1
+                        Chapter(
+                            trackId = track.id,
+                            bookId = bookId,
+                            index = i,
+                            title = chapter.tag.ifBlank { "Chapter $n" },
+                            startMs = chapter.startTimeOffset,
+                        )
+                    }
+            }
+        db.chapterDao().deleteForBook(bookId)
+        db.chapterDao().upsertAll(chapters)
     }
 
     private fun requireLibrary(): String =
@@ -122,10 +151,11 @@ private fun publishedAtEpochMs(
     return 0L
 }
 
+/** [cached] is the pre-sync row when it was downloaded, so download state survives the upsert. */
 private fun PlexMetadata.toTrack(
     id: Int,
     bookId: Int,
-    isCached: Boolean,
+    cached: Track?,
 ): Track {
     val part = media.firstOrNull()?.parts?.firstOrNull()
     return Track(
@@ -137,6 +167,7 @@ private fun PlexMetadata.toTrack(
         partKey = part?.key.orEmpty(),
         sizeBytes = part?.size ?: 0,
         viewOffsetMs = viewOffset,
-        isCached = isCached,
+        isCached = cached != null,
+        localUri = cached?.localUri,
     )
 }

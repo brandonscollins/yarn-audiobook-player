@@ -47,6 +47,21 @@ data class PlexMetadata(
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),
     @SerialName("Genre") val genres: List<PlexTag> = emptyList(),
     @SerialName("Collection") val collections: List<PlexTag> = emptyList(),
+    /** Embedded chapters on a track — only present when requested with `includeChapters=1`. */
+    @SerialName("Chapter") val chapters: List<PlexChapter> = emptyList(),
+)
+
+/** One embedded chapter within a track's file. Every attribute is optional on the wire. */
+@Serializable
+data class PlexChapter(
+    val id: Long = 0,
+    val index: Int = 0,
+    /** The chapter title; Plex leaves it absent or blank when the file has none. */
+    val tag: String = "",
+    /** Start offset in ms, within the file — not the book. */
+    val startTimeOffset: Long = 0,
+    val endTimeOffset: Long = 0,
+    val thumb: String = "",
 )
 
 /** The "Media" element of a track — only its file parts matter here. */

@@ -134,7 +134,7 @@ private suspend fun rows(
 ): List<BookRow> {
     val byBook = positions.associateBy { it.bookId }
     val mapped =
-        books.filter { matchesFilter(filter, byBook[it.id]) }
+        books.filter { matchesFilter(filter, byBook[it.id]) && (filter != FilterMode.Downloaded || it.isCached) }
             .map { book -> BookRow(book, byBook[book.id]?.let { bookProgress(db, book, it) }) }
     return sortRows(mapped, sort)
 }
@@ -142,6 +142,7 @@ private suspend fun rows(
 /**
  * No ledger row means the book was never opened, so "not started" is the absence of a row rather
  * than a position of zero. Finished is the durable column (ADR-008), not a guess from the offset.
+ * Downloaded isn't position-based, so it's checked separately in [rows] against [Audiobook.isCached].
  */
 internal fun matchesFilter(
     filter: FilterMode,
@@ -152,6 +153,7 @@ internal fun matchesFilter(
         FilterMode.InProgress -> position != null && !position.finished
         FilterMode.NotStarted -> position == null
         FilterMode.Finished -> position?.finished == true
+        FilterMode.Downloaded -> true
     }
 
 private fun sortRows(

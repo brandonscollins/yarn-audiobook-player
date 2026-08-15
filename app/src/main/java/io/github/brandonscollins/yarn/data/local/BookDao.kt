@@ -37,6 +37,13 @@ interface BookDao {
     )
     fun search(pattern: String): Flow<List<Audiobook>>
 
+    /** Book-level download flag: true once every track is downloaded, false on remove. */
+    @Query("UPDATE books SET isCached = :cached WHERE id = :bookId")
+    suspend fun setCached(
+        bookId: Int,
+        cached: Boolean,
+    )
+
     @Upsert
     suspend fun upsertAll(books: List<Audiobook>)
 }

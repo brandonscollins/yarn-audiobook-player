@@ -34,6 +34,12 @@ interface PlexMediaService {
         @Path("bookId") bookId: Int,
     ): MediaContainerResponse
 
+    /** One track's own metadata, with any chapters embedded in its file (Milestone 5). */
+    @GET("/library/metadata/{trackId}?includeChapters=1")
+    suspend fun retrieveTrackMetadata(
+        @Path("trackId") trackId: Int,
+    ): MediaContainerResponse
+
     @GET("/library/sections/{libraryId}/collections")
     suspend fun retrieveCollections(
         @Path("libraryId") libraryId: String,

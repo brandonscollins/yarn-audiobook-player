@@ -4,7 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
-import io.github.brandonscollins.yarn.data.local.nextInCollection
+import io.github.brandonscollins.yarn.data.local.nextUpNext
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.PlaybackPosition
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
@@ -66,8 +66,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * The next unstarted book in a collection the Continue listening book belongs to. Most
-     * libraries answer null for most books, and the section is meant to stay hidden when it does.
+     * The next unstarted book of the Continue listening book's series, found by title numbering
+     * among its collection peers, then among everything by the same author, then by Plex's own
+     * collection order. Most libraries answer null for most books, and the section is meant to stay
+     * hidden when it does.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val upNext: StateFlow<Audiobook?> =
@@ -79,8 +81,14 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 db.bookDao().getAllBooks(),
             ) { peers, positions, books ->
                 val started = positions.mapTo(mutableSetOf()) { it.bookId }
-                nextInCollection(current.book.id, peers, started)
-                    ?.let { id -> books.firstOrNull { it.id == id } }
+                val peerIds = peers.mapTo(mutableSetOf()) { it.bookId }
+                nextUpNext(
+                    current = current.book,
+                    collectionPeers = books.filter { it.id in peerIds },
+                    sameAuthorBooks = books.filter { it.author == current.book.author },
+                    crossRefs = peers,
+                    startedBookIds = started,
+                )?.let { id -> books.firstOrNull { it.id == id } }
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
