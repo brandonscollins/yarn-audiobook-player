@@ -88,4 +88,16 @@ interface PlexMediaService {
         @Query("key") key: String,
         @Query("identifier") identifier: String = "com.plexapp.plugins.library",
     )
+
+    /**
+     * Explicit "mark as unplayed", drained from the outbox's `unplayedPending` flag the same way
+     * [scrobble] drains `finishedPending`. Plex cascades scrobble/unscrobble state from an album
+     * onto its tracks, so passing the book's own ratingKey as [key] clears the whole book in one
+     * call — no per-track loop needed.
+     */
+    @GET("/:/unscrobble")
+    suspend fun unscrobble(
+        @Query("key") key: String,
+        @Query("identifier") identifier: String = "com.plexapp.plugins.library",
+    )
 }

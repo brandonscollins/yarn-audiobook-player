@@ -48,6 +48,12 @@ class PositionLedger(context: Context) {
                     syncedToPlex = false,
                     finishedPending = previous?.finishedPending == true,
                     finished = previous?.finished == true,
+                    // Deliberately NOT preserved, unlike finishedPending above: a "mark unplayed"
+                    // tombstone exists only to tell Plex the book was reset. Playback landing before
+                    // the outbox drains it means the user is listening again, which supersedes that
+                    // request on its own — this write already reports the real position, so there's
+                    // nothing left for the unscrobble to accomplish.
+                    unplayedPending = false,
                 ),
             )
             // Everything below runs only after the position itself is on disk.

@@ -32,10 +32,10 @@ pairs with the deferred reconnect work below (same plumbing).
 - [x] Download state badges in library + Download / Cancel / Remove in the
       book detail overflow menu (`Track.localUri` is schema v6; both cached
       columns are carried across syncs)
-- [ ] Do the mid-session reconnect with it: a `DataSource.Factory` resolving
-      the base URL per request, plus a re-race on `IOException`. Today a
-      LAN→relay move mid-session leaves the queue pointing at a dead URI,
-      because `PlayerController` builds MediaItem URIs once at `playBook`.
+- [x] Mid-session reconnect — **done (2026-08-15, ADR-013).**
+      `ResolvingDataSource` rewrites every `/library/parts/` request to the
+      current `chosenServerUri`; a network-class player error triggers one
+      single-flight re-race and resumes in place.
 
 **Milestone 5 — Remaining player polish.**
 
@@ -49,17 +49,19 @@ pairs with the deferred reconnect work below (same plumbing).
          lazily by `playBook` when a book has no rows, driving ticks and the
          Chapters sheet with track boundaries as the fallback. The two paths
          below remain for books where Plex itself has no chapter data.
-      2. ID3 `CHAP`/`CTOC` for MP3. media3 already decodes these
-         (`androidx.media3.extractor.metadata.id3.ChapterFrame` /
-         `ChapterTocFrame`) but delivers them as *timed* metadata during
-         playback, so it needs a service→UI channel — or a one-off
-         `MetadataRetriever` pass at book open, cached in Room.
+      2. [x] ID3 `CHAP` for MP3 — **done (2026-08-15, ADR-014).** When the
+         Plex pass finds zero chapters, a one-off `MetadataRetriever` pass
+         reads the files' `ChapterFrame`s (local file when downloaded, else
+         the stream) into the same `chapters` table; <2 chapters counts as
+         none. `CTOC` ignored — start-time order is enough.
       3. M4B / MP4 `chpl` + the QuickTime chapter text track. media3 parses
          neither; this is the only part that means writing a real parser.
-      Cache whatever is found (a `chapters` table keyed by trackId) so it is
-      resolved once per book, not per open. The scrub bar already draws ticks
-      from a list of absolute offsets, so all three paths feed the same UI.
-- [ ] Android Auto (mostly config now that `MediaSessionService` is correct)
+      All paths feed the same `chapters` table and the same tick/sheet UI.
+- [x] Android Auto — **built (2026-08-15, ADR-016), not yet verified in a
+      car.** `MediaLibraryService` with Continue listening + Library folders;
+      picking a book resolves tracks + resume point service-side. Check on
+      the real head unit: does tapping a book play it from the right spot,
+      and does artwork render.
 - [ ] Listening stats (needs a local play-time log — the only part of the old
       "recents / finished / stats" line still outstanding)
 
@@ -82,20 +84,18 @@ Schema went 3 → 5: `playback_positions.finished` (ADR-008) and
 
 ## Known deferred issues (deliberate, from the review passes)
 
-- "Mark as unplayed" clears Plex with a best-effort timeline sweep at `time=0`
-  rather than `/:/unscrobble` drained by the outbox. Marked unplayed with the
-  server unreachable, the local clear holds only until the next `syncTracks`.
-  Upgrade: add `unscrobble` to `PlexMediaService` plus an `unplayedPending`
-  column, drained by `ProgressSyncWorker` exactly like `finishedPending`.
+- ~~"Mark as unplayed" timeline sweep~~ — fixed 2026-08-15 (ADR-015): real
+  `/:/unscrobble` drained by the outbox via an `unplayedPending` tombstone.
+- ~~`EffectsState.bandInfo` stale after service release~~ — fixed 2026-08-15:
+  `AudioEffects.release()` clears it.
 - Per-book speed keys in `PlayerPrefs` are never pruned, so a removed book
   leaves its key behind.
 - A book in several collections answers "Up next" from whichever peer list
-  comes first, and equal `ordinal`s match nothing.
+  comes first; since 2026-08-15 that only matters as the *last* rung of
+  `nextUpNext` — title numbering (SeriesOrder) answers first.
 - `onDestroy`'s ledger write is async — a hard kill immediately after can
   drop it. Bounded by the 10s tick and the pause write; the alternative is
   `runBlocking` on the main thread, which trades a rare loss for an ANR.
-- `EffectsState.bandInfo` isn't cleared on service release, so a destroyed
-  service leaves stale band info on screen. Harmless single-device.
 - Effect setters are silently dropped if the `MediaController` isn't
   connected. Unreachable today (the controller connects at NavHost creation);
   matters only if the EQ sheet becomes reachable from Settings.

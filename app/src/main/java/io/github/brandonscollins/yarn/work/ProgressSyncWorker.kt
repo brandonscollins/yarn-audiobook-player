@@ -39,6 +39,18 @@ class ProgressSyncWorker(
 
         return try {
             for (position in db.positionDao().getUnsynced()) {
+                if (position.unplayedPending) {
+                    // A "mark as unplayed" tombstone. Plex cascades unscrobble from the album to
+                    // its tracks (PlexMediaService.unscrobble doc), so the book's own ratingKey is
+                    // the whole call — no startPlayQueue, no per-track progress(), and skipping
+                    // both is what keeps this row from ever reporting a position (gotcha #1/#2
+                    // don't apply to a call that never touches /:/timeline). On success the row is
+                    // gone outright: "unplayed" here is the absence of a ledger row, not a zeroed
+                    // one (data/model/PlaybackPosition.kt isStartedRow).
+                    api.mediaService.unscrobble(position.bookId.toString())
+                    db.positionDao().clearIfUnchanged(position.bookId, position.updatedAtEpochMs)
+                    continue
+                }
                 val track =
                     db.trackDao().getTracksForBook(position.bookId).first()
                         .firstOrNull { it.id == position.trackId } ?: continue

@@ -27,4 +27,18 @@ data class PlaybackPosition(
      * finished as soon as it successfully says so.
      */
     val finished: Boolean = false,
+    /**
+     * "Mark as unplayed" tombstone, not yet told to Plex. Unlike [finishedPending] this row has no
+     * durable counterpart to survive alongside — once `/:/unscrobble` is accepted the outbox
+     * deletes the row outright, since "unplayed" for this app is defined as no row at all
+     * ([io.github.brandonscollins.yarn.ui.library.matchesFilter], [isStartedRow]).
+     */
+    val unplayedPending: Boolean = false,
 )
+
+/**
+ * "Started" means a real ledger row — a mark-unplayed tombstone ([PlaybackPosition.unplayedPending])
+ * is still a row in the table (so the outbox has something to drain) but must read everywhere else
+ * as if the book had never been opened, until the drain deletes it for real.
+ */
+fun isStartedRow(position: PlaybackPosition): Boolean = !position.unplayedPending

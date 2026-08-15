@@ -3,20 +3,37 @@ package io.github.brandonscollins.yarn.player
 import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
+import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
+import io.github.brandonscollins.yarn.data.local.YarnDatabase
+import io.github.brandonscollins.yarn.data.model.PlaybackPosition
+import io.github.brandonscollins.yarn.data.model.Track
+import io.github.brandonscollins.yarn.data.plex.PlexConnectionManager
+import io.github.brandonscollins.yarn.data.plex.PlexGraph
+import io.github.brandonscollins.yarn.settings.PlexPrefs
 import io.github.brandonscollins.yarn.work.ProgressSyncWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +41,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 
@@ -62,15 +80,28 @@ private const val SESSION_GAP_MS = 5 * 60_000L
  * of Android Auto; a book is a playlist of its tracks so ExoPlayer handles file-to-file transitions.
  *
  * Every ledger write-trigger lives in [PlayerEvents] plus [startLedgerTick] and [onDestroy].
+ *
+ * Mid-session reconnect: streaming URIs are resolved per-request (see [resolveStreamingUri]) rather
+ * than baked into the MediaItem once, and [PlayerEvents.onPlayerError] re-races the connection and
+ * retries — see both for the mechanism.
+ *
+ * `MediaLibraryService` (rather than plain `MediaSessionService`) is what gets Android Auto its
+ * browse tree: [Callback.onGetLibraryRoot]/[Callback.onGetChildren] serve root/continue/library
+ * from Room (tree shape and MediaItem shaping in `AutoLibrary.kt`), and a `book/<id>` leaf tapped
+ * there resolves into a real track queue in [Callback.onSetMediaItems]/[Callback.onAddMediaItems],
+ * built the same way `PlayerController.playBook` does.
  */
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
     private lateinit var player: ExoPlayer
     private lateinit var prefs: PlayerPrefs
     private lateinit var ledger: PositionLedger
     private lateinit var sleepTimer: SleepTimer
     private lateinit var effects: AudioEffects
-    private var session: MediaSession? = null
+    private lateinit var plexPrefs: PlexPrefs
+    private lateinit var connectionManager: PlexConnectionManager
+    private lateinit var db: YarnDatabase
+    private var session: MediaLibrarySession? = null
 
     /** Player-thread scope: the sleep timer and the ledger tick both touch the player. */
     private val playerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -82,12 +113,27 @@ class PlaybackService : MediaSessionService() {
     /** A queue just set by `PlayerController.playBook` arrives already positioned, rewind included. */
     private var queuePositioned = false
 
+    /**
+     * Single-flight guard for [triggerReconnect]. Plain Boolean, not Atomic/synchronized: every
+     * read/write happens on this service's main-thread player callbacks or `playerScope`
+     * (Main.immediate), never off-thread.
+     */
+    private var reconnecting = false
+
     override fun onCreate() {
         super.onCreate()
         prefs = PlayerPrefs(this)
         ledger = PositionLedger(this)
+        plexPrefs = PlexGraph.prefs(this)
+        connectionManager = PlexGraph.connections(this)
+        db = PlexGraph.db(this)
+        val resolvingFactory =
+            ResolvingDataSource.Factory(DefaultDataSource.Factory(this)) { dataSpec ->
+                resolveStreamingUri(dataSpec)
+            }
         player =
             ExoPlayer.Builder(this)
+                .setMediaSourceFactory(DefaultMediaSourceFactory(resolvingFactory))
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
@@ -113,10 +159,12 @@ class PlaybackService : MediaSessionService() {
             },
         )
         effects.attach(player.audioSessionId)
-        session = MediaSession.Builder(this, player).setCallback(Callback()).build()
+        session = MediaLibrarySession.Builder(this, player, Callback()).build()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    // Non-null per the MediaLibraryService contract: the platform never calls this before onCreate
+    // has run (which is what sets [session]) or after onDestroy has torn the service down.
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession = session!!
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
@@ -148,6 +196,92 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun currentBookId(): Int? = player.currentMediaItem?.mediaMetadata?.extras?.getInt(EXTRA_BOOK_ID)
+
+    /**
+     * Android Auto tapped a `book/<id>` browse leaf: build the real track queue and resume point,
+     * the same way `PlayerController.playBook` does (tracks from Room, [resumePoint] then the same
+     * rewind-on-resume math as `PlayerController.rewound`, which is private there so it's mirrored
+     * here rather than shared). Null when the book has no synced tracks yet — Auto has no UI to
+     * kick off a sync, so there's nothing more useful to do than fail the request.
+     *
+     * Skips `PlayerController.consumePlexOffsets`: that folds a Plex `viewOffset` mirror into the
+     * ledger, which is a nice-to-have write, not a read anything here depends on — the ledger row
+     * is still the primary source of truth and furthest-ahead still wins on the next app open.
+     */
+    private suspend fun resolveBookQueue(bookId: Int): MediaSession.MediaItemsWithStartPosition? {
+        val tracks = db.trackDao().getTracksForBook(bookId).first()
+        if (tracks.isEmpty()) return null
+        val ledgerRow = db.positionDao().getPosition(bookId)
+        val resume = resumePoint(tracks, ledgerRow)
+        val start = autoRewound(tracks, resume, ledgerRow)
+        val items = tracks.map { it.toAutoQueueItem(bookId, plexPrefs) }
+        return MediaSession.MediaItemsWithStartPosition(items, start.trackIndex, start.positionMs)
+    }
+
+    /** Mirrors `PlayerController.rewound` (private there) — see [resolveBookQueue]. */
+    private fun autoRewound(
+        tracks: List<Track>,
+        resume: ResumePoint,
+        ledgerRow: PlaybackPosition?,
+    ): ResumePoint {
+        if (ledgerRow == null) return resume
+        val rewindMs =
+            rewindOnResumeMs(
+                prefs.rewindMode,
+                System.currentTimeMillis() - ledgerRow.updatedAtEpochMs,
+                prefs.fixedRewindSec * 1_000L,
+            )
+        if (rewindMs <= 0) return resume
+        val absoluteMs = absolutePositionMs(tracks, resume.trackIndex, resume.positionMs)
+        return resumePointAt(tracks, absoluteMs - rewindMs)
+    }
+
+    /**
+     * Rewrites a Plex stream request's scheme+authority to whatever [PlexConnectionManager] has
+     * most recently settled on, resolved at request time instead of once at `playBook`. This is
+     * what survives a mid-session LAN->remote/relay switch (CLAUDE.md gotcha #3): the queue's
+     * MediaItems never change, only where each load actually goes. Anything that isn't a Plex part
+     * URL — including a downloaded track's content:// URI — passes through untouched, as does any
+     * request while no connection has been chosen yet.
+     */
+    private fun resolveStreamingUri(dataSpec: DataSpec): DataSpec {
+        val uri = dataSpec.uri
+        if (uri.scheme != "http" && uri.scheme != "https") return dataSpec
+        if (uri.path?.contains("/library/parts/") != true) return dataSpec
+        val base = plexPrefs.chosenServerUri
+        if (base.isEmpty()) return dataSpec
+        val baseUri = base.toUri()
+        return dataSpec.withUri(
+            uri.buildUpon().scheme(baseUri.scheme).authority(baseUri.authority).build(),
+        )
+    }
+
+    /**
+     * Re-races the Plex connection after a load failure and retries once it settles, so the very
+     * next request through [resolveStreamingUri] picks up a live server. Single-flight via
+     * [reconnecting]: a burst of load errors off one dead connection triggers one race, not a stack
+     * of them. If the race fails (still offline), this does nothing further — the player surfaces
+     * its normal error/paused state and position is already safe in the ledger. Not a retry loop:
+     * each subsequent [Player.Listener.onPlayerError] call can trigger one more of these, but this
+     * function itself never re-arms.
+     */
+    private fun triggerReconnect() {
+        if (reconnecting) return
+        reconnecting = true
+        val resumePlaying = player.playWhenReady
+        playerScope.launch {
+            // PlexConnectionManager.connect() always re-races (unlike ensureConnected(), which
+            // short-circuits once a connection is recorded) — exactly the "force" behavior needed
+            // here, so no new API on that class.
+            val winner = runCatching { connectionManager.connect() }.getOrNull()
+            reconnecting = false
+            if (winner != null) {
+                // No setMediaItems/seekTo(0) — prepare() alone resumes from the current position.
+                player.prepare()
+                if (resumePlaying) player.play()
+            }
+        }
+    }
 
     private fun startLedgerTick() {
         tickJob?.cancel()
@@ -264,9 +398,20 @@ class PlaybackService : MediaSessionService() {
             prefs.speed = playbackParameters.speed
             currentBookId()?.let { prefs.setSpeedFor(it, playbackParameters.speed) }
         }
+
+        override fun onPlayerError(error: PlaybackException) {
+            // Mid-session reconnect: only worth re-racing when the failure was an IO error (the
+            // codes ExoPlayer uses for network/HTTP failures, 2000..2999) on a streaming item — a
+            // downloaded track's content:// read failing is a different problem re-racing can't fix.
+            val isIoError = error.errorCode in PlaybackException.ERROR_CODE_IO_UNSPECIFIED..2999
+            val isStreaming =
+                player.currentMediaItem?.localConfiguration?.uri?.scheme
+                    ?.let { it == "http" || it == "https" } == true
+            if (isIoError && isStreaming) triggerReconnect()
+        }
     }
 
-    private inner class Callback : MediaSession.Callback {
+    private inner class Callback : MediaLibrarySession.Callback {
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -331,18 +476,134 @@ class PlaybackService : MediaSessionService() {
                     )
             }
 
-        /** MediaItems lose their URI crossing the session boundary; re-attach it from the request. */
+        /**
+         * MediaItems lose their URI crossing the session boundary; re-attach it from the request.
+         * A single `book/<id>` item (an Auto browse leaf added without a pre-resolved position)
+         * is resolved into the book's real track queue instead — see [resolveBookQueue]. Anything
+         * else, including the phone UI's own already-built track items, is untouched.
+         */
         override fun onAddMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
-        ): ListenableFuture<MutableList<MediaItem>> =
-            Futures.immediateFuture(
-                mediaItems.mapTo(mutableListOf()) { item ->
-                    item.requestMetadata.mediaUri
-                        ?.let { item.buildUpon().setUri(it).build() }
-                        ?: item
-                },
-            )
+        ): ListenableFuture<MutableList<MediaItem>> {
+            val bookId = mediaItems.singleOrNull()?.mediaId?.let(::parseBookMediaId)
+            if (bookId == null) {
+                return Futures.immediateFuture(
+                    mediaItems.mapTo(mutableListOf()) { item ->
+                        item.requestMetadata.mediaUri
+                            ?.let { item.buildUpon().setUri(it).build() }
+                            ?: item
+                    },
+                )
+            }
+            val future = SettableFuture.create<MutableList<MediaItem>>()
+            playerScope.launch {
+                val resolved = resolveBookQueue(bookId)
+                future.set(resolved?.mediaItems?.toMutableList() ?: mutableListOf())
+            }
+            return future
+        }
+
+        /**
+         * The phone UI's own `PlayerController.playBook` already sends real, resolved track items
+         * with the start index/position it computed — those pass straight through to the default
+         * behavior untouched. A single `book/<id>` item (Android Auto playing a browse leaf) is
+         * resolved here instead: real tracks plus the resume point, via [resolveBookQueue].
+         */
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val bookId = mediaItems.singleOrNull()?.mediaId?.let(::parseBookMediaId)
+                ?: return super.onSetMediaItems(mediaSession, controller, mediaItems, startIndex, startPositionMs)
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            playerScope.launch {
+                val resolved = resolveBookQueue(bookId)
+                if (resolved != null) {
+                    future.set(resolved)
+                } else {
+                    future.setException(IllegalStateException("Auto: book $bookId has no synced tracks"))
+                }
+            }
+            return future
+        }
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<MediaItem>> =
+            Futures.immediateFuture(LibraryResult.ofItem(autoRootItem(), params))
+
+        /** Root: two folders. Continue listening: the ledger, most recent first. Library: A-Z. */
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            playerScope.launch {
+                val children: List<MediaItem>? =
+                    when (parentId) {
+                        AUTO_ROOT_ID -> listOf(autoContinueFolderItem(), autoLibraryFolderItem())
+                        AUTO_CONTINUE_ID ->
+                            db.positionDao().getRecent(AUTO_CONTINUE_LIMIT).first()
+                                .mapNotNull { db.bookDao().getBook(it.bookId).first() }
+                                .map { it.toAutoBrowseItem(plexPrefs) }
+                        AUTO_LIBRARY_ID ->
+                            db.bookDao().getAllBooks().first()
+                                .take(AUTO_LIBRARY_LIMIT)
+                                .map { it.toAutoBrowseItem(plexPrefs) }
+                        else -> null
+                    }
+                future.set(
+                    if (children != null) {
+                        LibraryResult.ofItemList(children, params)
+                    } else {
+                        LibraryResult.ofError<ImmutableList<MediaItem>>(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                    },
+                )
+            }
+            return future
+        }
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String,
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val folder =
+                when (mediaId) {
+                    AUTO_ROOT_ID -> autoRootItem()
+                    AUTO_CONTINUE_ID -> autoContinueFolderItem()
+                    AUTO_LIBRARY_ID -> autoLibraryFolderItem()
+                    else -> null
+                }
+            if (folder != null) return Futures.immediateFuture(LibraryResult.ofItem(folder, null))
+            val bookId =
+                parseBookMediaId(mediaId)
+                    ?: return Futures.immediateFuture(
+                        LibraryResult.ofError<MediaItem>(LibraryResult.RESULT_ERROR_BAD_VALUE),
+                    )
+            val future = SettableFuture.create<LibraryResult<MediaItem>>()
+            playerScope.launch {
+                val book = db.bookDao().getBook(bookId).first()
+                future.set(
+                    if (book != null) {
+                        LibraryResult.ofItem(book.toAutoBrowseItem(plexPrefs), null)
+                    } else {
+                        LibraryResult.ofError<MediaItem>(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                    },
+                )
+            }
+            return future
+        }
     }
 }

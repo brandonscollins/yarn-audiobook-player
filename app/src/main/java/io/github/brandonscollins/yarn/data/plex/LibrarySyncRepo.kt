@@ -1,5 +1,6 @@
 package io.github.brandonscollins.yarn.data.plex
 
+import android.content.Context
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.BookCollectionCrossRef
@@ -25,6 +26,13 @@ class LibrarySyncRepo(
     private val prefs: PlexPrefs,
     private val api: PlexApi,
     private val db: YarnDatabase,
+    /**
+     * Optional so every existing call site keeps compiling untouched (PlayerController and the
+     * three ViewModels that construct this repo are out of scope here). All four already have a
+     * Context in hand at their call site — passing it through is a one-line follow-up wherever
+     * the ID3 fallback below should actually go live; until then it stays a no-op.
+     */
+    private val context: Context? = null,
 ) {
     suspend fun fetchLibraries(): List<PlexLibrary> =
         api.mediaService.retrieveLibraries().mediaContainer.directories
@@ -94,11 +102,16 @@ class LibrarySyncRepo(
      * One request per track, so this is called lazily at book open — never from [sync], which
      * would turn every library refresh into N-per-book requests. All-or-nothing: a failed fetch
      * throws before the delete, leaving whatever was cached.
+     *
+     * When Plex itself has zero chapters across every track, falls back to reading embedded ID3
+     * `CHAP` frames straight out of the files (Milestone 5 path 2 — see next_steps.md "Chapter
+     * compatibility"). That fallback needs a Context, which not every caller supplies (see
+     * [context]'s doc); with none, this behaves exactly as before.
      */
     suspend fun syncChapters(bookId: Int) {
         val tracks = db.trackDao().getTracksForBook(bookId).first()
         var n = 0
-        val chapters =
+        val plexChapters =
             tracks.flatMap { track ->
                 api.mediaService.retrieveTrackMetadata(track.id).mediaContainer.metadata
                     .firstOrNull()?.chapters.orEmpty()
@@ -113,8 +126,23 @@ class LibrarySyncRepo(
                         )
                     }
             }
+        val appContext = context
+        val chapters =
+            if (plexChapters.isNotEmpty() || appContext == null) {
+                plexChapters
+            } else {
+                retrieveId3Chapters(appContext, bookId, tracks, ::streamUri)
+            }
         db.chapterDao().deleteForBook(bookId)
         db.chapterDao().upsertAll(chapters)
+    }
+
+    /** [Track.localUri] (downloaded, cheap and local) wins; otherwise the same stream URL shape
+     * playback uses: server + partKey + token. */
+    private fun streamUri(track: Track): String {
+        track.localUri?.let { return it }
+        val token = prefs.serverToken.ifEmpty { prefs.accountToken }
+        return "${prefs.chosenServerUri}${track.partKey}?X-Plex-Token=$token"
     }
 
     private fun requireLibrary(): String =

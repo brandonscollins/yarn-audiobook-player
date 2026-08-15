@@ -11,7 +11,6 @@ import io.github.brandonscollins.yarn.data.model.PlaybackPosition
 import io.github.brandonscollins.yarn.data.model.Track
 import io.github.brandonscollins.yarn.data.plex.LibrarySyncRepo
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
-import io.github.brandonscollins.yarn.data.plex.mediaItemUri
 import io.github.brandonscollins.yarn.work.ProgressSyncWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,7 +28,7 @@ class BookDetailViewModel(
     private val db = PlexGraph.db(app)
     private val prefs = PlexGraph.prefs(app)
     private val api = PlexGraph.api(app)
-    private val syncRepo = LibrarySyncRepo(prefs, api, db)
+    private val syncRepo = LibrarySyncRepo(prefs, api, db, app)
 
     val book: StateFlow<Audiobook?> =
         db.bookDao().getBook(bookId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -87,38 +86,36 @@ class BookDetailViewModel(
     }
 
     /**
-     * "Mark as unplayed". Three copies of the progress have to go or it comes straight back: the
-     * ledger row, the Plex `viewOffset`s already synced onto the local tracks (`resumePoint` takes
-     * whichever of the two is furthest ahead), and Plex's own copy, which the next `syncTracks`
-     * would otherwise pull back down over the cleared ones.
+     * "Mark as unplayed". Two copies of the progress have to go or it comes straight back: the
+     * Plex `viewOffset`s already synced onto the local tracks (`resumePoint` takes whichever of
+     * local vs. Plex is furthest ahead, so those clear immediately, same as before), and Plex's own
+     * copy of the position.
      *
-     * ponytail: the server half is a best-effort timeline sweep at time=0 rather than
-     * `/:/unscrobble` drained by the outbox — the endpoint and an `unplayedPending` column both
-     * live in the data layer this screen doesn't own. Ceiling: marked unplayed with the server
-     * unreachable, the local clear holds only until the next `syncTracks` restores the offsets.
-     * Upgrade path: add `unscrobble` to `PlexMediaService` plus a row flag, and drain it in
-     * `ProgressSyncWorker` exactly like `finishedPending`.
+     * The server half used to be a best-effort timeline sweep at time=0 — offline-unsafe, since the
+     * next `syncTracks` would pull the server's old progress back down over it. Now it's a
+     * tombstone ledger row (`unplayedPending`, positionMs 0 at the book's first track) that
+     * survives exactly like a `finishedPending` row does: it rides in the outbox, drained by
+     * `ProgressSyncWorker` via `/:/unscrobble`, and every "has this book been started" read
+     * (`isStartedRow`) treats it as no row at all in the meantime. `_position` is set to null
+     * rather than the tombstone for the same reason — this screen's Resume/Play label and progress
+     * bar read `position != null`.
      */
     fun markUnplayed() {
         viewModelScope.launch {
             val bookTracks = db.trackDao().getTracksForBook(bookId).first()
-            db.positionDao().clearPosition(bookId)
+            val firstTrack = bookTracks.firstOrNull() ?: return@launch
             db.trackDao().upsertAll(bookTracks.map { it.copy(viewOffsetMs = 0) })
+            db.positionDao().upsert(
+                PlaybackPosition(
+                    bookId = bookId,
+                    trackId = firstTrack.id,
+                    positionMs = 0,
+                    updatedAtEpochMs = System.currentTimeMillis(),
+                    unplayedPending = true,
+                ),
+            )
             _position.value = null
-            runCatching {
-                // Timeline updates no-op without a session first (gotcha #1); the doubled duration
-                // keeps the 90% rule out of it (gotcha #2) even on the way back down to zero.
-                api.mediaService.startPlayQueue(mediaItemUri(prefs.serverId, bookId))
-                bookTracks.forEach { track ->
-                    api.mediaService.progress(
-                        ratingKey = track.id.toString(),
-                        key = "/library/metadata/${track.id}",
-                        timeMs = 0,
-                        duration = track.durationMs * 2,
-                        playState = ProgressSyncWorker.STATE_STOPPED,
-                    )
-                }
-            }
+            ProgressSyncWorker.enqueue(getApplication())
         }
     }
 }

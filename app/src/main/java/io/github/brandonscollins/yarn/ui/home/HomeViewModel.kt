@@ -7,6 +7,7 @@ import io.github.brandonscollins.yarn.data.local.YarnDatabase
 import io.github.brandonscollins.yarn.data.local.nextUpNext
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.PlaybackPosition
+import io.github.brandonscollins.yarn.data.model.isStartedRow
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.ui.common.bookRemainingMs
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -34,7 +35,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     val continueListening: StateFlow<PlayedBook?> =
         combine(db.positionDao().getMostRecent(), db.bookDao().getAllBooks()) { position, books ->
-            if (position == null) return@combine null
+            // A "mark unplayed" tombstone is the most recent row by definition (it was just
+            // written), but it must not surface as the continue-listening book before the outbox
+            // drains it (isStartedRow).
+            if (position == null || !isStartedRow(position)) return@combine null
             played(db, listOf(position), books).firstOrNull()
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -47,7 +51,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         combine(
             db.positionDao().getRecent(PLAYED_SHELF + 1),
             db.bookDao().getAllBooks(),
-        ) { positions, books -> played(db, positions.drop(1), books) }
+        ) { positions, books ->
+            // Filter tombstones out before drop(1) — see continueListening above.
+            played(db, positions.filter(::isStartedRow).drop(1), books)
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** "View more" — every started book, newest first, hero book included. */
@@ -55,7 +62,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         combine(
             db.positionDao().getRecent(Int.MAX_VALUE),
             db.bookDao().getAllBooks(),
-        ) { positions, books -> played(db, positions, books) }
+        ) { positions, books -> played(db, positions.filter(::isStartedRow), books) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val finished: StateFlow<List<PlayedBook>> =
@@ -80,7 +87,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 db.positionDao().getAll(),
                 db.bookDao().getAllBooks(),
             ) { peers, positions, books ->
-                val started = positions.mapTo(mutableSetOf()) { it.bookId }
+                val started = positions.filter(::isStartedRow).mapTo(mutableSetOf()) { it.bookId }
                 val peerIds = peers.mapTo(mutableSetOf()) { it.bookId }
                 nextUpNext(
                     current = current.book,

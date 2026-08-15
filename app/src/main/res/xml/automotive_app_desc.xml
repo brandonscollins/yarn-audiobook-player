@@ -1,0 +1,8 @@
+<!--
+  Declares Yarn as a media app to Android Auto. Discovery itself happens via the
+  android.media.browse.MediaBrowserService intent-filter action on PlaybackService
+  (AndroidManifest.xml) — this descriptor just confirms the "media" category once Auto finds it.
+-->
+<automotiveApp xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses name="media" />
+</automotiveApp>

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -8,7 +10,18 @@ plugins {
 
 // One version string, used for both the app's versionName and the artifact name, so the
 // build lands at yarn-<version>-debug.apk instead of app-debug.apk.
-val appVersionName = "1.2"
+val appVersionName = "1.3"
+
+// Derived version code: split major.minor[.patch], compute major*10000 + minor*100 + patch
+// E.g. "1.2" -> 10200, "1.2.3" -> 10203
+val appVersionCode = appVersionName.split(".").let {
+    it[0].toInt() * 10000 + it[1].toInt() * 100 + (it.getOrNull(2)?.toInt() ?: 0)
+}
+
+// Load keystore config if it exists (created during setup; absent on fresh clones)
+val keystoreProps = rootProject.file("keystore.properties").let { f ->
+    if (f.exists()) Properties().apply { f.inputStream().use { load(it) } } else null
+}
 
 base.archivesName = "yarn-$appVersionName"
 
@@ -20,13 +33,28 @@ android {
         applicationId = "io.github.brandonscollins.yarn"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
+        versionCode = appVersionCode
         versionName = appVersionName
     }
 
+    signingConfigs {
+        keystoreProps?.let { props ->
+            create("yarn") {
+                storeFile = rootProject.file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            keystoreProps?.let { signingConfig = signingConfigs.getByName("yarn") }
+        }
         release {
             isMinifyEnabled = false
+            keystoreProps?.let { signingConfig = signingConfigs.getByName("yarn") }
         }
     }
 

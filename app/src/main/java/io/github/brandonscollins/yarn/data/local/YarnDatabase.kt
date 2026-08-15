@@ -20,7 +20,7 @@ import io.github.brandonscollins.yarn.data.model.Track
         PlaybackPosition::class,
         Chapter::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class YarnDatabase : RoomDatabase() {
@@ -99,6 +99,20 @@ val MIGRATION_6_7 =
                     "`trackId` INTEGER NOT NULL, `bookId` INTEGER NOT NULL, " +
                     "`index` INTEGER NOT NULL, `title` TEXT NOT NULL, " +
                     "`startMs` INTEGER NOT NULL, PRIMARY KEY(`trackId`, `index`))",
+            )
+        }
+    }
+
+/**
+ * Adds `unplayedPending`, mirroring [MIGRATION_1_2]'s `finishedPending` — "mark as unplayed" now
+ * writes a tombstone row drained by the outbox via `/:/unscrobble` instead of a best-effort sweep.
+ */
+val MIGRATION_7_8 =
+    object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE playback_positions " +
+                    "ADD COLUMN unplayedPending INTEGER NOT NULL DEFAULT 0",
             )
         }
     }

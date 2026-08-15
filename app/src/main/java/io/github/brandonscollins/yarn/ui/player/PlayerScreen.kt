@@ -79,6 +79,7 @@ import io.github.brandonscollins.yarn.data.local.nextUpNext
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.Chapter
 import io.github.brandonscollins.yarn.data.model.Track
+import io.github.brandonscollins.yarn.data.model.isStartedRow
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.player.SEEK_STEP_MS
 import io.github.brandonscollins.yarn.player.absolutePositionMs
@@ -144,7 +145,8 @@ fun PlayerScreen(
             db.positionDao().getAll(),
             db.bookDao().getAllBooks(),
         ) { peers, positions, books ->
-            val started = positions.mapTo(mutableSetOf()) { it.bookId }
+            // A "mark unplayed" tombstone reads as not-started until the outbox drains it.
+            val started = positions.filter(::isStartedRow).mapTo(mutableSetOf()) { it.bookId }
             val peerIds = peers.mapTo(mutableSetOf()) { it.bookId }
             nextUpNext(
                 current = current,

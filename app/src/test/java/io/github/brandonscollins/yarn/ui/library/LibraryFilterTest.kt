@@ -1,18 +1,30 @@
 package io.github.brandonscollins.yarn.ui.library
 
 import io.github.brandonscollins.yarn.data.model.PlaybackPosition
+import io.github.brandonscollins.yarn.data.model.isStartedRow
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class LibraryFilterTest {
-    private fun position(finished: Boolean) =
-        PlaybackPosition(
-            bookId = 1,
-            trackId = 100,
-            positionMs = 60_000,
-            updatedAtEpochMs = 0,
-            finished = finished,
-        )
+    private fun position(
+        finished: Boolean,
+        unplayedPending: Boolean = false,
+    ) = PlaybackPosition(
+        bookId = 1,
+        trackId = 100,
+        positionMs = 60_000,
+        updatedAtEpochMs = 0,
+        finished = finished,
+        unplayedPending = unplayedPending,
+    )
+
+    // A row still exists in the table while a "mark unplayed" tombstone waits on the outbox
+    // (ProgressSyncWorker), but every "started" consumer must read it as if there were no row.
+    @Test
+    fun `a mark-unplayed tombstone does not count as started`() {
+        assertEquals(true, isStartedRow(position(finished = false)))
+        assertEquals(false, isStartedRow(position(finished = false, unplayedPending = true)))
+    }
 
     @Test
     fun `All keeps every book whatever its progress`() {

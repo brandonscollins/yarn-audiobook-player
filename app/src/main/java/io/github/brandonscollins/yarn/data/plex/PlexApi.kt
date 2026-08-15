@@ -9,6 +9,7 @@ import io.github.brandonscollins.yarn.data.local.MIGRATION_3_4
 import io.github.brandonscollins.yarn.data.local.MIGRATION_4_5
 import io.github.brandonscollins.yarn.data.local.MIGRATION_5_6
 import io.github.brandonscollins.yarn.data.local.MIGRATION_6_7
+import io.github.brandonscollins.yarn.data.local.MIGRATION_7_8
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
 import io.github.brandonscollins.yarn.settings.PlexPrefs
 import kotlinx.coroutines.Dispatchers
@@ -90,6 +91,7 @@ object PlexGraph {
                 MIGRATION_4_5,
                 MIGRATION_5_6,
                 MIGRATION_6_7,
+                MIGRATION_7_8,
             )
             .build()
             .also { db = it }

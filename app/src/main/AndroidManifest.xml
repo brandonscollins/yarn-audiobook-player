@@ -21,6 +21,12 @@
         android:theme="@style/Theme.Yarn"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true">
+        <!-- Tells Android Auto this app is a media app; PlaybackService's MediaBrowserService
+             intent-filter action is what actually gets it discovered. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
         <!-- singleTop: without it the Resume shortcut fired at an already-running app just brings
              the task forward and the intent is dropped, so the shortcut silently does nothing. -->
         <activity

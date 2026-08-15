@@ -47,7 +47,7 @@ class PlayerController(
     private val plexPrefs = PlexGraph.prefs(appContext)
     private val playerPrefs = PlayerPrefs(appContext)
     private val db = PlexGraph.db(appContext)
-    private val syncRepo = LibrarySyncRepo(plexPrefs, PlexGraph.api(appContext), db)
+    private val syncRepo = LibrarySyncRepo(plexPrefs, PlexGraph.api(appContext), db, appContext)
 
     private var controller: MediaController? = null
     private var pollJob: Job? = null
@@ -118,6 +118,10 @@ class PlayerController(
                     db.trackDao().getTracksForBook(bookId).first()
                 }
             if (tracks.isEmpty()) return@launch
+            // A "mark unplayed" tombstone (ledger.unplayedPending) still resolves correctly here:
+            // its own position is (first track, 0) and markUnplayed already zeroed every track's
+            // viewOffsetMs, so resumePoint has nothing further-ahead to prefer — the book starts
+            // over from 0, which is exactly what playing it after marking it unplayed should do.
             val ledger = db.positionDao().getPosition(bookId)
             val resume = resumePoint(tracks, ledger)
             val start = rewound(tracks, resume, ledger)
@@ -321,10 +325,13 @@ fun Player.seekWithinBook(deltaMs: Long) {
 }
 
 /**
- * Plex accepts its token as a query param, which is why streaming needs no custom DataSource. The
- * URI also rides in [MediaItem.RequestMetadata] because MediaItems lose their local configuration
- * on the way to the service. A downloaded track plays from its MediaStore copy instead — no
- * network, no token.
+ * The base URL baked in here is only a starting point: [PlaybackService] installs a
+ * `ResolvingDataSource` that rewrites each request's scheme+authority to whatever
+ * `PlexConnectionManager` has most recently settled on, so a mid-session LAN->remote/relay switch
+ * (CLAUDE.md gotcha #3) doesn't leave the queue pointing at a dead server — the MediaItem itself
+ * never needs rebuilding. The URI also rides in [MediaItem.RequestMetadata] because MediaItems lose
+ * their local configuration on the way to the service. A downloaded track plays from its MediaStore
+ * copy instead — no network, no token, and nothing for the resolver to rewrite.
  */
 private fun Track.toMediaItem(
     bookId: Int,

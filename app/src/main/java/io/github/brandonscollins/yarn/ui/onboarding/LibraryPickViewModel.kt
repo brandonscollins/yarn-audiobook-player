@@ -24,7 +24,7 @@ sealed interface LibraryPickUiState {
 }
 
 class LibraryPickViewModel(app: Application) : AndroidViewModel(app) {
-    private val syncRepo = LibrarySyncRepo(PlexGraph.prefs(app), PlexGraph.api(app), PlexGraph.db(app))
+    private val syncRepo = LibrarySyncRepo(PlexGraph.prefs(app), PlexGraph.api(app), PlexGraph.db(app), app)
 
     private val _state = MutableStateFlow<LibraryPickUiState>(LibraryPickUiState.Loading)
     val state: StateFlow<LibraryPickUiState> = _state.asStateFlow()

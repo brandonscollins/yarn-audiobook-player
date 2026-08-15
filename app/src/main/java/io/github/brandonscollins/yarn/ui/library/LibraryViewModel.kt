@@ -9,6 +9,7 @@ import io.github.brandonscollins.yarn.data.local.likePattern
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.Collection
 import io.github.brandonscollins.yarn.data.model.PlaybackPosition
+import io.github.brandonscollins.yarn.data.model.isStartedRow
 import io.github.brandonscollins.yarn.data.plex.LibrarySyncRepo
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.ui.common.bookProgress
@@ -35,7 +36,7 @@ class LibraryViewModel(
     savedStateHandle: SavedStateHandle,
 ) : AndroidViewModel(app) {
     private val db = PlexGraph.db(app)
-    private val syncRepo = LibrarySyncRepo(PlexGraph.prefs(app), PlexGraph.api(app), db)
+    private val syncRepo = LibrarySyncRepo(PlexGraph.prefs(app), PlexGraph.api(app), db, app)
     private val libraryPrefs = LibraryPrefs(app)
 
     private val _viewMode = MutableStateFlow(libraryPrefs.viewMode)
@@ -132,7 +133,9 @@ private suspend fun rows(
     sort: SortMode,
     filter: FilterMode,
 ): List<BookRow> {
-    val byBook = positions.associateBy { it.bookId }
+    // A "mark unplayed" tombstone (unplayedPending) reads as no row at all until the outbox
+    // drains it — same "started" semantics as HomeViewModel and PlayerScreen's up-next.
+    val byBook = positions.filter(::isStartedRow).associateBy { it.bookId }
     val mapped =
         books.filter { matchesFilter(filter, byBook[it.id]) && (filter != FilterMode.Downloaded || it.isCached) }
             .map { book -> BookRow(book, byBook[book.id]?.let { bookProgress(db, book, it) }) }

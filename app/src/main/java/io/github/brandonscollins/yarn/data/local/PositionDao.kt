@@ -36,9 +36,23 @@ interface PositionDao {
         finished: Boolean,
     )
 
-    /** "Mark as unplayed" — the ledger row is the progress, so dropping it is the whole operation. */
-    @Query("DELETE FROM playback_positions WHERE bookId = :bookId")
-    suspend fun clearPosition(bookId: Int)
+    /**
+     * The outbox's other half of "mark as unplayed": once `/:/unscrobble` is accepted for an
+     * `unplayedPending` tombstone, the row is deleted outright rather than marked synced — an
+     * unplayed book has no ledger row at all. Same compare-and-set as [markSynced]: a play that
+     * lands mid-drain (fresh [PlaybackPosition.upsert] bumps [PlaybackPosition.updatedAtEpochMs])
+     * must not have its real position deleted out from under it.
+     */
+    @Query(
+        """
+        DELETE FROM playback_positions
+        WHERE bookId = :bookId AND updatedAtEpochMs = :updatedAtEpochMs
+        """,
+    )
+    suspend fun clearIfUnchanged(
+        bookId: Int,
+        updatedAtEpochMs: Long,
+    )
 
     /**
      * Compare-and-set on [PlaybackPosition.updatedAtEpochMs]: a row the ledger has rewritten since

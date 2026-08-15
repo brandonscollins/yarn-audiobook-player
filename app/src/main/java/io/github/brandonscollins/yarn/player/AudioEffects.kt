@@ -103,6 +103,9 @@ class AudioEffects(private val prefs: PlayerPrefs) {
         loudness = null
         eq = null
         sessionId = SESSION_UNSET
+        // Otherwise a destroyed service leaves the last session's band info on screen — the EQ
+        // sheet would show stale bands/presets for a device that no longer has an Equalizer.
+        EffectsState.bandInfo.value = null
     }
 
     fun setBoost(mB: Int) {

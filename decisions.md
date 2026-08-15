@@ -153,3 +153,92 @@ and one endpoint beat writing ID3/`chpl` parsers.
 show track boundaries; ID3 `CHAP` and M4B `chpl` parsing stay on Milestone 5
 as the remaining sub-paths. A genuinely chapterless book re-probes on each
 open (a handful of cheap requests, silently dropped offline).
+
+## ADR-012 — The debug keystore is the permanent signing identity, backed up (2026-08-15)
+
+**Decision:** Rather than generate a release keystore, the machine-generated
+`~/.android/debug.keystore` that has signed every installed build is promoted
+to the app's permanent signing identity: copied (fingerprint-verified) to
+OneDrive `Claude/cli-sync/secrets/yarn-signing.keystore` and to the gitignored
+repo path `keystore/yarn-signing.keystore`, and wired into both build types via
+`keystore.properties` (also gitignored; standard debug credentials). A fresh
+clone without the properties file still builds with default debug signing.
+`versionCode` now derives from `appVersionName` (major·10000 + minor·100 +
+patch, so 1.2 → 10200), so the installer sees every version bump as an upgrade.
+**Why:** A new key would force one uninstall — wiping Room and the position
+ledger, the exact loss the change guards against. Keeping the existing key
+means every future build, from any machine holding the backup, updates in
+place. The key never enters the public repo.
+**Consequence:** The signing identity has debug-standard passwords; acceptable
+for a personal sideloaded app whose threat model is key *loss*, not key theft.
+
+## ADR-013 — Streaming URLs resolve per request; a playback error re-races (2026-08-15)
+
+**Decision:** The player's media source factory wraps the default one in
+`ResolvingDataSource`: any http(s) request whose path contains
+`/library/parts/` gets its scheme+authority rewritten to the *current*
+`chosenServerUri` at load time (path, query and token untouched;
+`content://` downloads pass through). On a network-class `PlaybackException`
+(codes 2000–2999) for a streaming item, the service runs one single-flight
+connection race (`PlexConnectionManager.connect`) and, on a win, `prepare()` +
+`play()` — resuming from the stall point. A losing race leaves the normal
+error state; the ledger already holds the position.
+**Why:** URIs were built once at `playBook`, so a LAN→remote move mid-session
+left the queue pointing at a dead base URL until the book was reopened.
+**Consequence:** No retry loop — one race per error event. Books playing from
+downloads never trigger any of this.
+
+## ADR-014 — ID3 `CHAP` fallback when Plex returns no chapters (2026-08-15)
+
+**Decision:** When `syncChapters`' Plex pass yields zero chapters for a book,
+media3's `MetadataRetriever` reads each track's embedded ID3 `ChapterFrame`s
+directly (from the downloaded file when present, else the stream URL; ~30s
+per-track timeout), mapped into the same `chapters` table — titles from the
+frame's `TIT2` sub-frame, else "Chapter N". Fewer than two chapters across the
+whole book counts as none: a single marker is just "the file starts".
+`ChapterTocFrame` is ignored; ordering is by start time. Plex chapters, when
+present, always win.
+**Why:** Plex indexes most embedded chapters but not all; the frames are in
+the files regardless, and media3 already decodes them — only the plumbing was
+missing. M4B `chpl` parsing remains the one unbuilt sub-path (needs a real
+parser).
+**Consequence:** A chapterless book's open now costs a metadata probe per
+track after the Plex probe; both are silently dropped offline and re-tried
+next open.
+
+## ADR-015 — "Mark unplayed" is an outbox tombstone drained by `/:/unscrobble` (2026-08-15)
+
+**Decision:** Marking a book unplayed writes one tombstone ledger row
+(`positionMs = 0`, `unplayedPending = true`, schema v8) and enqueues the sync
+worker, which calls `/:/unscrobble` with the *book's* ratingKey (Plex cascades
+album→tracks, one call clears the whole book) and then CAS-deletes the row.
+Every "started" consumer filters tombstones via `isStartedRow`, so the book
+reads as Not started immediately. Playing the book before the drain overwrites
+the tombstone — deliberately dropping the pending unscrobble, since a reported
+position supersedes it.
+**Why:** The old best-effort timeline sweep at `time=0` was lost if the server
+was unreachable; the next `syncTracks` resurrected the server's old progress.
+The outbox already existed for `finishedPending` — this mirrors it exactly.
+**Consequence:** "Not started" now formally means "no ledger row, or only a
+tombstone". `PositionLedger.record` deliberately does not preserve the flag.
+
+## ADR-016 — Android Auto via `MediaLibraryService`, resolution service-side (2026-08-15)
+
+**Decision:** `PlaybackService` is now a `MediaLibraryService` (a
+`MediaSessionService` subclass, so the phone UI's `MediaController` flow is
+unchanged). The browse tree is two folders — Continue listening (recent ledger
+rows, ≤20) and Library (alphabetical, ≤100) — of playable leaves with
+`mediaId = "book/<id>"`. Picking one resolves server-side: tracks from Room,
+`resumePoint` plus the rewind-on-resume math, and per-track MediaItems
+mirroring `PlayerController.toMediaItem` field-for-field (duplicated with a
+pointer comment — both are private to their owners). The Plex viewOffset
+mirror is not consumed on the Auto path; the ledger stays primary and
+furthest-ahead wins at next app open. Artwork uses the same transcoder URL as
+the app's `CoverArt`.
+**Why:** The session work was already correct; Auto needed a browse surface
+and a way to start a book without the app's UI in the loop.
+**Consequence:** Unverified against a real head unit — book taps are handled
+in both `onSetMediaItems` and `onAddMediaItems` because media3 1.4.1's mapping
+from legacy `playFromMediaId` is undocumented; folder ordering and artwork
+rendering need an on-device check. With no raced connection at browse time,
+covers are simply absent.
