@@ -53,6 +53,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Asks the Brasco App Store for a newer build, at most every 6 hours; Home shows the offer. */
+    override fun onResume() {
+        super.onResume()
+        Updater.maybeCheck(this, UPDATES_URL, true)
+    }
+
     /** The activity is singleTop, so a shortcut tapped at a warm app arrives here, not in onCreate. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -89,5 +95,9 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** Kept in step with the intent action in `res/xml/shortcuts.xml`. */
         const val ACTION_RESUME = "io.github.brandonscollins.yarn.action.RESUME"
+
+        /** The store's manifest for this app (ADR-018). Tailscale-only today; change it here if it moves. */
+        const val UPDATES_URL =
+            "https://bc-edgewood.char-arcturus.ts.net:8443/apps/io.github.brandonscollins.yarn/latest.json"
     }
 }

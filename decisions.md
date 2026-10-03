@@ -242,3 +242,41 @@ in both `onSetMediaItems` and `onAddMediaItems` because media3 1.4.1's mapping
 from legacy `playFromMediaId` is undocumented; folder ordering and artwork
 rendering need an on-device check. With no raced connection at browse time,
 covers are simply absent.
+
+## ADR-017 — Signing falls back to the OneDrive-synced keystore on any machine (2026-10-03)
+
+**Decision:** `keystore.properties` still wins when present (the Mac). When it is
+absent but `~/.claude/secrets/yarn-signing.keystore` exists — the ADR-012 backup,
+synced from OneDrive `cli-sync/secrets/` to each of Brandon's machines — both
+debug and release sign with it: alias `androiddebugkey`, store and key password
+`android`. Neither present: default debug signing and an unsigned release, as
+before. Verified on the Windows PC: both APKs carry certificate SHA-256
+`7eef168c658467d10d9cf02b7a93183434b622d6a356d0fa9e2a33b88d80c60e`.
+**Why:** Self-update (ADR-018) only works if every build, from whichever machine
+made it, is signed by the installed app's key. Writing a `keystore.properties`
+on each machine is one more thing to forget; the synced file is already there.
+**Consequence:** The credentials sit in `app/build.gradle.kts` in a public repo.
+That is fine: they are the public standard debug-keystore defaults (ADR-012), and
+the key file itself never enters the repo.
+
+## ADR-018 — Self-update from the Brasco App Store, not GitHub releases (2026-10-03)
+
+**Decision:** Yarn checks
+`https://bc-edgewood.char-arcturus.ts.net:8443/apps/io.github.brandonscollins.yarn/latest.json`
+(one constant, `MainActivity.UPDATES_URL`) on resume, at most every 6 hours.
+When the published `versionCode` is higher, Home shows a card: Later hides that
+version until a newer one appears; Install downloads the APK, checks its size and
+SHA-256, and hands it to `PackageInstaller`, which shows Android's own "Update
+this app?" prompt. The checker is `Updater.kt`, copied from the store's
+reusable `client/Updater.kt` (shared with the Steward launcher); only its
+package line and banner styling differ. Made safe for minSdk 29
+(`IntentCompat.getParcelableExtra`, `FLAG_MUTABLE` only on API 31+), and that
+version was copied back to the store's client.
+**Why:** The store already serves Brandon's other apps with the same contract,
+so Yarn gets updates with ~300 lines of shared, tested code and no release
+pipeline of its own. It supersedes the parked GitHub-releases plan in
+next_steps.md.
+**Consequence:** The store is Tailscale-only today, so a check off Tailscale
+fails silently (nothing is shown). If the store moves (e.g. public on 443),
+change the one constant. Adds the `REQUEST_INSTALL_PACKAGES` permission; the
+first Install sends the user to Android's "allow installs from Yarn" screen.

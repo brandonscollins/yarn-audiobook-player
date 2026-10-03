@@ -4,10 +4,11 @@ A personal Android audiobook client for Plex. Your books stay on your own
 server; Yarn is just a good player for them. Built because the great Android
 players are local-only and the Plex-native options have unreliable players.
 
-**Status: v1.0, working and in daily use.** Streaming, progress that survives
-anything, playback speed, a sleep timer that arms itself at bedtime, EQ and
-volume boost, collections, sorting, and search all work. Offline downloads are
-the next milestone — see [next_steps.md](next_steps.md).
+**Status: v1.4, working and in daily use.** Streaming, offline downloads,
+progress that survives anything, playback speed, a sleep timer that arms itself
+at bedtime, EQ and volume boost, chapters, collections, sorting, search, and
+Android Auto all work. v1.4 adds self-update from the Brasco App Store — see
+[next_steps.md](next_steps.md).
 
 ## What it does
 
@@ -24,6 +25,9 @@ the next milestone — see [next_steps.md](next_steps.md).
 - **A library you can navigate**: grid or list, your Plex collections and
   series, sort by title / recently added / publication date, an A-Z rail, and
   instant offline search
+- **Updates itself**: when a newer build is published to the Brasco App Store,
+  Home offers it; one tap downloads it, checks it, and opens Android's update
+  prompt
 
 ## Building
 
@@ -34,7 +38,7 @@ Headless — no Android Studio required. See "Building on this Mac" in
 ./gradlew assembleDebug
 ```
 
-The APK lands at `app/build/outputs/apk/debug/yarn-1.0-debug.apk`. Install it
+The APK lands at `app/build/outputs/apk/debug/yarn-1.4-debug.apk`. Install it
 with `adb install -r <apk>`; `-r` preserves your login and saved positions
 (the database migrates in place).
 

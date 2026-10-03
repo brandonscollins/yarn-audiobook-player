@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Without this the media notification is silently not shown on 33+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Self-update from the Brasco App Store (ADR-018): hands a downloaded APK to Android's installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- usesCleartextTraffic: Plex's local connection candidates are plain
          http://192.168.x.x:32400, and cleartext is blocked by default from API 29 up — without
@@ -49,6 +51,11 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!-- PackageInstaller reports an update's progress here, through an explicit PendingIntent. -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
 
         <service
             android:name=".player.PlaybackService"

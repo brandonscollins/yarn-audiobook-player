@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import io.github.brandonscollins.yarn.UpdateBanner
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.ui.common.ThinProgressBar
@@ -93,6 +94,8 @@ fun HomeScreen(
                 Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
                     .padding(16.dp),
         ) {
+            UpdateBanner(Modifier.padding(bottom = 20.dp))
+
             if (continueListening == null && recentlyAdded.isEmpty()) {
                 Text(
                     "Welcome to Yarn. Open Library to start listening.",

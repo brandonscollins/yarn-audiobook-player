@@ -1,8 +1,19 @@
 # Next steps
 
-Current state: **v1.0, working and in daily use.** P0 was verified on a real
-phone against the real Plex server; the P1 batch below shipped on top of it.
-Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.0-debug.apk`.
+Current state: **v1.4, working and in daily use.** P0 was verified on a real
+phone against the real Plex server; the batches below shipped on top of it.
+Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.4-debug.apk`.
+
+## Shipped (2026-10-03) — v1.4: self-update from the Brasco App Store
+
+Yarn now updates itself: on resume (at most every 6 hours) it asks the Brasco
+App Store for `latest.json`, and when a newer build is published Home shows a
+card with Later / Install (ADR-018). Install downloads, checks size and
+SHA-256, and opens Android's own update prompt. Signing now works on any of
+Brandon's machines via the OneDrive-synced keystore (ADR-017), so a build from
+the Windows PC updates the installed app in place. Not yet verified on the
+phone: the first real update through the store (install 1.4 by hand, then
+publish a later build and update from the card).
 
 ## Shipped (2026-08-06)
 
@@ -105,49 +116,25 @@ Schema went 3 → 5: `playback_positions.finished` (ADR-008) and
   emission. Bounded by books-with-a-position; a JOIN would remove it.
 - Per-row play state in `ProgressSyncWorker` (cosmetic on the Plex dashboard).
 - No Android-dependent test harness (Robolectric/fakes). Add when a
-  regression actually bites; the pure logic is unit-tested (27 tests).
-- Lint exits non-zero on 4 known false positives: one `WrongConstant` from
-  media3's incomplete `SessionResult` IntDef, three
-  `ProduceStateDoesNotAssignValue` where lint can't see through a nested
-  `let`/`collect`. Lint is not a gate.
+  regression actually bites; the pure logic is unit-tested (94 tests at v1.4).
+- Full `lint` exits non-zero on known pre-existing issues (37 errors at v1.4):
+  `WrongConstant` from media3's incomplete `SessionResult`/`LibraryResult`
+  IntDefs, `ProduceStateDoesNotAssignValue` where lint can't see through a
+  nested `let`/`collect`, `UnsafeOptInUsageError` in `Id3Chapters.kt`, and
+  `MissingIntentFilterForMediaSearch` (Auto voice search). Lint is not a gate;
+  `lintVitalRelease` (run by `assembleRelease`) passes.
 
 ## If this ever becomes a release build
 
-Debug-signed is fine for sideloading and is what's shipping today. A real
-release build needs: a keystore **you** generate (`keytool -genkey -v
--keystore yarn.jks ...` — the password is yours, put it in
-`keystore.properties`, which is already gitignored), a `signingConfigs` block
-reading that file, and `isMinifyEnabled = true` on the release build type.
-R8 will also strip the unused `material-icons-extended` glyphs, which is most
-of the current ~66 MB APK.
+Signing is settled: the promoted debug key signs debug and release on every
+machine (ADR-012, ADR-017). What remains is `isMinifyEnabled = true` on the
+release build type; R8 will strip the unused `material-icons-extended` glyphs,
+which is most of the current ~66 MB APK.
 
-## Making updates less janky (not started, deliberately parked)
+## Making updates less janky — done (2026-10-03, ADR-018)
 
-Today an update means building on the Mac and hand-carrying the APK to the
-phone. A "Settings → check for updates" button that pulls from GitHub is very
-doable — the repo is public, so the releases API needs no token — but it can't
-be built first. In order:
-
-1. **The keystore is the real prerequisite, not polish.** Android refuses an
-   update signed with a different key than the installed app, and the current
-   debug key is the auto-generated machine-local `~/.android/debug.keystore`.
-   Build on another machine, or lose that file, and the only way to install is
-   uninstall-first — which wipes Room and the position ledger with it. See the
-   section above.
-2. `versionCode` is hardcoded to `1` and never bumped, while `versionName`
-   comes from `appVersionName`. The installer decides what counts as an
-   upgrade from `versionCode`, so derive it from the same constant.
-3. Publish the APK as a GitHub release — `gh release create` after a local
-   build, or an Actions workflow on a tag push (that one needs the keystore as
-   a base64 repo secret).
-4. Only then the client half: ~100 lines in Settings hitting
-   `/repos/brandonscollins/yarn-audiobook-player/releases/latest`, comparing
-   `tag_name` to `BuildConfig.VERSION_NAME`, downloading the asset with the
-   OkHttp client that already exists, and handing it to the system installer
-   via a `FileProvider` plus the `REQUEST_INSTALL_PACKAGES` permission.
-
-Worth knowing before building it: Android always shows its own install
-confirmation for a sideloaded app, so the ceiling is "check → download → tap
-Install", never a silent overnight update. **Obtainium** (FOSS, watches a repo's
-releases) gets the same result with no code in Yarn at all, and still needs
-step 1 — it only replaces step 4.
+Superseded by the Brasco App Store. The keystore and `versionCode`
+prerequisites were met in v1.3 (ADR-012), signing now works on every machine
+(ADR-017), and Yarn's in-app checker pulls from the store instead of GitHub
+releases. Android still shows its own install confirmation, so the ceiling
+remains "check → download → tap Install", never a silent overnight update.

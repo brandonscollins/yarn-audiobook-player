@@ -10,7 +10,7 @@ plugins {
 
 // One version string, used for both the app's versionName and the artifact name, so the
 // build lands at yarn-<version>-debug.apk instead of app-debug.apk.
-val appVersionName = "1.3"
+val appVersionName = "1.4"
 
 // Derived version code: split major.minor[.patch], compute major*10000 + minor*100 + patch
 // E.g. "1.2" -> 10200, "1.2.3" -> 10203
@@ -22,6 +22,12 @@ val appVersionCode = appVersionName.split(".").let {
 val keystoreProps = rootProject.file("keystore.properties").let { f ->
     if (f.exists()) Properties().apply { f.inputStream().use { load(it) } } else null
 }
+
+// Fallback when keystore.properties is absent (ADR-017): the same key, synced from OneDrive to every one of
+// Brandon's machines. It is the promoted standard debug keystore (ADR-012), so its credentials are the public
+// debug defaults, not a secret. Neither present: default debug signing, unsigned release, as before.
+val sharedKeystore = File(System.getProperty("user.home"), ".claude/secrets/yarn-signing.keystore")
+    .takeIf { keystoreProps == null && it.exists() }
 
 base.archivesName = "yarn-$appVersionName"
 
@@ -46,15 +52,23 @@ android {
                 keyPassword = props.getProperty("keyPassword")
             }
         }
+        sharedKeystore?.let { f ->
+            create("yarn") {
+                storeFile = f
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildTypes {
         debug {
-            keystoreProps?.let { signingConfig = signingConfigs.getByName("yarn") }
+            signingConfigs.findByName("yarn")?.let { signingConfig = it }
         }
         release {
             isMinifyEnabled = false
-            keystoreProps?.let { signingConfig = signingConfigs.getByName("yarn") }
+            signingConfigs.findByName("yarn")?.let { signingConfig = it }
         }
     }
 
@@ -108,4 +122,5 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.json) // Android's org.json is a stub in unit tests; UpdaterTest parses latest.json
 }

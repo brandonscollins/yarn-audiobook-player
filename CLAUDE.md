@@ -4,8 +4,8 @@ Personal Android audiobook client for Plex. One user (Brandon), sideloaded,
 GPL-3.0. Read PRD.md for scope, decisions.md for the ADR log, next_steps.md
 for current work.
 
-**State: v1.0, shipped and in daily use.** P0 plus the P1 audio/library/design
-batch are done and device-verified; downloads are the next milestone. Treat
+**State: v1.4, shipped and in daily use.** Downloads, chapters, Android Auto
+and self-update from the Brasco App Store (ADR-018) are in; see next_steps.md. Treat
 existing behavior as load-bearing — someone is listening to books on this
 tonight. `versionName` and the artifact name both come from the single
 `appVersionName` constant in `app/build.gradle.kts`.
@@ -81,6 +81,16 @@ below if missing.
   wrapper --gradle-version 8.9` once; the project uses `./gradlew`
   (wrapper pinned to 8.9), never the brew-installed `gradle`.
 - `./gradlew assembleDebug` is the build gate.
+
+## Signing on any machine
+
+Every build must carry the same key or Android refuses the update (ADR-012).
+`keystore.properties` (Mac) wins; otherwise the build signs with
+`~/.claude/secrets/yarn-signing.keystore`, synced from OneDrive (ADR-017).
+Check with `apksigner verify --print-certs <apk>`: the certificate SHA-256 must be
+`7eef168c658467d10d9cf02b7a93183434b622d6a356d0fa9e2a33b88d80c60e`. On the
+Windows PC: `$env:JAVA_HOME='C:\dev\jdk21'; $env:ANDROID_HOME='C:\dev\android-sdk'`,
+then `.\gradlew.bat assembleDebug assembleRelease --console=plain`.
 
 ## Accounts / machines
 
