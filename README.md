@@ -4,10 +4,10 @@ A personal Android audiobook client for Plex. Your books stay on your own
 server; Yarn is just a good player for them. Built because the great Android
 players are local-only and the Plex-native options have unreliable players.
 
-**Status: v1.4, working and in daily use.** Streaming, offline downloads,
+**Status: v1.5, working and in daily use.** Streaming, offline downloads,
 progress that survives anything, playback speed, a sleep timer that arms itself
 at bedtime, EQ and volume boost, chapters, collections, sorting, search, and
-Android Auto all work. v1.4 adds self-update from the Brasco App Store — see
+Android Auto all work. Updates come from the Brasco App Store — see
 [next_steps.md](next_steps.md).
 
 ## What it does

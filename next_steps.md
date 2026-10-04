@@ -1,8 +1,15 @@
 # Next steps
 
-Current state: **v1.4, working and in daily use.** P0 was verified on a real
+Current state: **v1.5, working and in daily use.** P0 was verified on a real
 phone against the real Plex server; the batches below shipped on top of it.
-Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.4-debug.apk`.
+Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.5-debug.apk`.
+
+## Shipped (2026-10-03) — v1.5: one-tap updates
+
+The store page's "Update now" button opens Yarn (link `brasco://update`), which checks
+at once and installs a newer build straight away. On Android 12+ the install
+usually needs no confirm tap (UPDATE_PACKAGES_WITHOUT_USER_ACTION). Pushing to
+`main` publishes to the store within 30 minutes once the version is raised.
 
 ## Shipped (2026-10-03) — v1.4: self-update from the Brasco App Store
 

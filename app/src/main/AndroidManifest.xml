@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Self-update from the Brasco App Store (ADR-018): hands a downloaded APK to Android's installer. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Android 12+: lets an update to Yarn itself install without a confirm dialog each time. -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <!-- usesCleartextTraffic: Plex's local connection candidates are plain
          http://192.168.x.x:32400, and cleartext is blocked by default from API 29 up — without
@@ -39,6 +41,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The Brasco App Store page's "Update now" button (Updater.handleLink). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="brasco" android:host="update" />
             </intent-filter>
             <meta-data
                 android:name="android.app.shortcuts"

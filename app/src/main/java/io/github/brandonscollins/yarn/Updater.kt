@@ -10,6 +10,7 @@ import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,6 +44,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -141,15 +143,42 @@ object Updater {
     }
   }
 
-  /** Fetches latest.json now. Never throws (except cancellation): problems come back in [Checked.error]. */
-  suspend fun check(context: Context, url: String): Checked {
+  /**
+   * The store page's "Update now" button opens brasco://update in this app. Returns false for any other intent.
+   * Checks right away (even if "Later" was tapped) and, if a newer version is out, downloads and installs it at once.
+   */
+  fun handleLink(context: Context, intent: Intent?, url: String): Boolean {
+    val data = intent?.data
+    if (intent?.action != Intent.ACTION_VIEW || data?.scheme != "brasco" || data.host != "update") return false
+    scope.launch {
+      checking.withLock {
+        status = null
+        val c = check(context, url, manual = true)
+        val latest = c.latest
+        when {
+          c.error != null -> toast(context, c.error)
+          c.available && latest != null -> startInstall(context, latest)
+          else -> toast(context, "${label(context)} is up to date (${c.installedName})")
+        }
+      }
+    }
+    return true
+  }
+
+  private fun toast(context: Context, text: String) = Toast.makeText(context.applicationContext, text, Toast.LENGTH_LONG).show()
+
+  /**
+   * Fetches latest.json now. Never throws (except cancellation): problems come back in [Checked.error].
+   * [manual] offers a newer version even if "Later" was tapped for it.
+   */
+  suspend fun check(context: Context, url: String, manual: Boolean = false): Checked {
     val (code, name) = installed(context)
     return try {
       val release = withTimeout(25_000) { withContext(Dispatchers.IO) { parseRelease(get(url), url, context.packageName) } }
       val newer = isNewer(code, release)
       val p = prefs(context)
       p.edit().putLong("lastCheck", System.currentTimeMillis()).apply()
-      offer = release.takeIf { newer && it.versionCode > p.getLong("dismissed", 0) }
+      offer = release.takeIf { newer && (manual || it.versionCode > p.getLong("dismissed", 0)) }
       Checked(code, name, release, newer, null)
     } catch (e: CancellationException) {
       if (e is kotlinx.coroutines.TimeoutCancellationException) Checked(code, name, null, false, "The update server didn't answer in time") else throw e
@@ -183,7 +212,7 @@ object Updater {
   }
 
   /**
-   * Downloads, verifies and hands the APK to Android's installer, which shows its own "Update this app?" dialog.
+   * Downloads, verifies and hands the APK to Android's installer, which may show its own "Update this app?" dialog.
    * Returns the line to show; the final result arrives in [UpdateReceiver].
    */
   suspend fun install(context: Context, release: Release): String {
@@ -200,6 +229,9 @@ object Updater {
       val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
         setAppPackageName(context.packageName)
         setSize(file.length())
+        // An app updating itself may skip Android's confirm dialog (needs UPDATE_PACKAGES_WITHOUT_USER_ACTION).
+        // If Android still wants a confirmation, UpdateReceiver gets STATUS_PENDING_USER_ACTION as before.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
       }
       val id = installer.createSession(params)
       installer.openSession(id).use { s ->

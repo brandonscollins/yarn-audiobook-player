@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch { PlexGraph.connections(this@MainActivity).ensureConnected() }
         }
         handleResumeShortcut(intent)
+        if (savedInstanceState == null) Updater.handleLink(this, intent, UPDATES_URL)
         setContent {
             YarnTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -64,6 +65,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleResumeShortcut(intent)
+        Updater.handleLink(this, intent, UPDATES_URL) // the store page's "Update now"
     }
 
     /**
