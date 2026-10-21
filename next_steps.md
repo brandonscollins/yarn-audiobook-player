@@ -1,8 +1,15 @@
 # Next steps
 
-Current state: **v1.6, working and in daily use.** P0 was verified on a real
+Current state: **v1.7, working and in daily use.** P0 was verified on a real
 phone against the real Plex server; the batches below shipped on top of it.
-Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.6-debug.apk`.
+Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.7-debug.apk`.
+
+## Shipped (2026-10-21) — v1.7: player buttons fill the screen
+
+1.6 left a blank gap above the buttons on Brandon's phone. The three button
+rows now split all the leftover height (104:80:64), so taller phones get
+bigger targets instead of empty space; play/pause became a rounded square to
+match, since a full-height circle stretched into a tall oval.
 
 ## Shipped (2026-10-21) — v1.6: car-sized player controls
 

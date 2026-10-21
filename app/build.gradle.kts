@@ -10,7 +10,7 @@ plugins {
 
 // One version string, used for both the app's versionName and the artifact name, so the
 // build lands at yarn-<version>-debug.apk instead of app-debug.apk.
-val appVersionName = "1.6"
+val appVersionName = "1.7"
 
 // Derived version code: split major.minor[.patch], compute major*10000 + minor*100 + patch
 // E.g. "1.2" -> 10200, "1.2.3" -> 10203

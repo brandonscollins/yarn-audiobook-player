@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -286,10 +285,12 @@ fun PlayerScreen(
                     )
                 }
             }
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Everything below is sized to hit without looking: nothing under 64dp tall.
-            Column(modifier = Modifier.fillMaxWidth()) {
+            // Everything below is sized to hit without looking. The three button rows split all the
+            // height left over, in the 104:80:64 proportion they were first drawn at, so a tall phone
+            // gets bigger targets rather than an empty gap.
+            Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 val sliderMax = bookDurationMs.coerceAtLeast(1L).toFloat()
                 val absoluteMs = absolutePositionMs(tracks, trackIndex, positionMs)
                 val sliderPosition = (dragPositionMs ?: absoluteMs.toFloat()).coerceIn(0f, sliderMax)
@@ -330,7 +331,7 @@ fun PlayerScreen(
                 val nextTarget = nextChapterStart(chapterStarts, absoluteMs)
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth().height(104.dp),
+                    modifier = Modifier.fillMaxWidth().weight(104f),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     BigButton(
@@ -342,7 +343,7 @@ fun PlayerScreen(
                     )
                     Surface(
                         onClick = { if (isPlaying) controller.pause() else controller.play() },
-                        shape = CircleShape,
+                        shape = MaterialTheme.shapes.extraLarge,
                         color = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.weight(1.25f).fillMaxHeight(),
@@ -366,7 +367,7 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth().height(80.dp),
+                    modifier = Modifier.fillMaxWidth().weight(80f),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     BigButton(
@@ -385,7 +386,7 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth().height(64.dp),
+                    modifier = Modifier.fillMaxWidth().weight(64f),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     val tile = Modifier.weight(1f).fillMaxHeight()
