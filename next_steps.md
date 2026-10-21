@@ -1,8 +1,17 @@
 # Next steps
 
-Current state: **v1.5, working and in daily use.** P0 was verified on a real
+Current state: **v1.6, working and in daily use.** P0 was verified on a real
 phone against the real Plex server; the batches below shipped on top of it.
-Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.5-debug.apk`.
+Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.6-debug.apk`.
+
+## Shipped (2026-10-21) — v1.6: car-sized player controls
+
+The Now Playing screen trades the big cover for a small thumbnail beside the
+title, and every control is now a large tile: previous/next chapter (104dp)
+flank play/pause, back/ahead 30s fill a row (80dp), and speed, sleep, chapters
+and sound sit four across (64dp). Chapter buttons stay in place, dimmed, when
+there is nowhere to step. Written on the Windows PC without a build toolchain,
+so the store's autopublish build was the first compile.
 
 ## Shipped (2026-10-03) — v1.5: one-tap updates
 

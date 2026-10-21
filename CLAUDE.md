@@ -4,7 +4,7 @@ Personal Android audiobook client for Plex. One user (Brandon), sideloaded,
 GPL-3.0. Read PRD.md for scope, decisions.md for the ADR log, next_steps.md
 for current work.
 
-**State: v1.5, shipped and in daily use.** Downloads, chapters, Android Auto
+**State: v1.6, shipped and in daily use.** Downloads, chapters, Android Auto
 and self-update from the Brasco App Store (ADR-018) are in; see next_steps.md. Treat
 existing behavior as load-bearing — someone is listening to books on this
 tonight. `versionName` and the artifact name both come from the single

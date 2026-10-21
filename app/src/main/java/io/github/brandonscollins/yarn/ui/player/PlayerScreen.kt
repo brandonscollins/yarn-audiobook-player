@@ -6,11 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,7 +37,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -69,7 +65,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -97,7 +92,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     playerViewModel: PlayerViewModel,
@@ -261,42 +256,40 @@ fun PlayerScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // Top half: cover + titles.
-            Column(
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
+            // Small cover beside the titles: the screen's height goes to tap targets instead,
+            // since this screen gets used one-handed in a car.
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 AsyncImage(
                     model = thumbUri(prefs, book?.thumbPath.orEmpty()),
                     contentDescription = null,
                     modifier =
-                        Modifier.fillMaxWidth(0.82f).aspectRatio(1f)
-                            .clip(MaterialTheme.shapes.large)
+                        Modifier.size(88.dp)
+                            .clip(MaterialTheme.shapes.medium)
                             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                 )
-                Spacer(modifier = Modifier.height(28.dp))
-                Text(
-                    book?.title.orEmpty(),
-                    style = MaterialTheme.typography.headlineSmall,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    currentTrack?.title.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        book?.title.orEmpty(),
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        currentTrack?.title.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
+            Spacer(modifier = Modifier.weight(1f))
 
-            // Bottom half: everything one-handed (PRD).
-            Column(modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 24.dp)) {
+            // Everything below is sized to hit without looking: nothing under 64dp tall.
+            Column(modifier = Modifier.fillMaxWidth()) {
                 val sliderMax = bookDurationMs.coerceAtLeast(1L).toFloat()
                 val absoluteMs = absolutePositionMs(tracks, trackIndex, positionMs)
                 val sliderPosition = (dragPositionMs ?: absoluteMs.toFloat()).coerceIn(0f, sliderMax)
@@ -313,38 +306,13 @@ fun PlayerScreen(
                         dragPositionMs = null
                     },
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                Row(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         formatDuration(sliderPosition.toLong()),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.weight(1f))
-                    // The chapter steps sit under the ticks they move between: the transport row
-                    // below is already 244dp of fixed-width controls, with nothing left for two
-                    // more buttons on a 360dp screen.
-                    if (chapterStarts.isNotEmpty()) {
-                        val seekTo = { target: Long ->
-                            val point = resumePointAt(tracks, target)
-                            controller.seekToTrack(point.trackIndex, point.positionMs)
-                        }
-                        ChapterSkip(
-                            icon = Icons.Filled.SkipPrevious,
-                            description = "Previous chapter",
-                            targetMs = previousChapterStart(chapterStarts, absoluteMs),
-                            onSeek = seekTo,
-                        )
-                        ChapterSkip(
-                            icon = Icons.Filled.SkipNext,
-                            description = "Next chapter",
-                            targetMs = nextChapterStart(chapterStarts, absoluteMs),
-                            onSeek = seekTo,
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
                     Text(
                         formatDuration(bookDurationMs),
                         style = MaterialTheme.typography.labelMedium,
@@ -352,59 +320,105 @@ fun PlayerScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                // Chapter steps flank play/pause. They stay in place (dimmed) when there is
+                // nowhere to step, so a thumb reaching for a spot never lands on something else.
+                val seekTo = { target: Long ->
+                    val point = resumePointAt(tracks, target)
+                    controller.seekToTrack(point.trackIndex, point.positionMs)
+                }
+                val previousTarget = previousChapterStart(chapterStarts, absoluteMs)
+                val nextTarget = nextChapterStart(chapterStarts, absoluteMs)
+                Spacer(modifier = Modifier.height(12.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().height(104.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SeekPill(Icons.Filled.Replay30, "Back 30 seconds") { controller.seekBy(-SEEK_STEP_MS) }
+                    BigButton(
+                        icon = Icons.Filled.SkipPrevious,
+                        label = "Prev chapter",
+                        enabled = previousTarget != null,
+                        onClick = { previousTarget?.let(seekTo) },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
                     Surface(
                         onClick = { if (isPlaying) controller.pause() else controller.play() },
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(84.dp),
+                        modifier = Modifier.weight(1.25f).fillMaxHeight(),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = if (isPlaying) "Pause" else "Play",
-                                modifier = Modifier.size(40.dp),
+                                modifier = Modifier.size(56.dp),
                             )
                         }
                     }
-                    SeekPill(Icons.Filled.Forward30, "Forward 30 seconds") { controller.seekBy(SEEK_STEP_MS) }
+                    BigButton(
+                        icon = Icons.Filled.SkipNext,
+                        label = "Next chapter",
+                        enabled = nextTarget != null,
+                        onClick = { nextTarget?.let(seekTo) },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(80.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    ControlPill(
+                    BigButton(
+                        icon = Icons.Filled.Replay30,
+                        label = "Back 30s",
+                        onClick = { controller.seekBy(-SEEK_STEP_MS) },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                    BigButton(
+                        icon = Icons.Filled.Forward30,
+                        label = "Ahead 30s",
+                        onClick = { controller.seekBy(SEEK_STEP_MS) },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(64.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val tile = Modifier.weight(1f).fillMaxHeight()
+                    BigButton(
                         icon = Icons.Filled.Speed,
                         label = "%.2fx".format(speed),
+                        small = true,
                         onClick = { showSpeed = true },
+                        modifier = tile,
                     )
-                    ControlPill(
+                    BigButton(
                         icon = Icons.Filled.Bedtime,
                         label = sleepRemainingMs?.let { formatMmSs(it) } ?: "Sleep",
+                        small = true,
                         active = sleepRemainingMs != null,
                         onClick = {
                             if (sleepRemainingMs != null) controller.cancelSleep() else showSleep = true
                         },
+                        modifier = tile,
                     )
-                    ControlPill(
+                    BigButton(
                         icon = Icons.AutoMirrored.Filled.List,
                         label = "Chapters",
+                        small = true,
                         onClick = { showChapters = true },
+                        modifier = tile,
                     )
-                    ControlPill(
+                    BigButton(
                         icon = Icons.Filled.GraphicEq,
                         label = "Sound",
+                        small = true,
                         onClick = { showEq = true },
+                        modifier = tile,
                     )
                 }
 
@@ -415,7 +429,7 @@ fun PlayerScreen(
                             Modifier.fillMaxWidth()
                                 .clip(MaterialTheme.shapes.medium)
                                 .clickable { controller.playBook(next.id) }
-                                .padding(vertical = 10.dp),
+                                .padding(vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -570,81 +584,49 @@ private fun ChapterSlider(
 }
 
 /**
- * A chapter step: quiet on purpose, so it reads as navigation next to the scrub bar rather than
- * competing with the transport controls. Disabled at the ends of the book, where there is nowhere
- * to step to.
+ * A car-sized tile: icon over a label, filling whatever the caller's row gives it. Gold when its
+ * feature is armed (only sleep uses that today); dimmed but still in place when [enabled] is false.
+ * [small] is the bottom row's tighter type, four across.
  */
 @Composable
-private fun ChapterSkip(
-    icon: ImageVector,
-    description: String,
-    targetMs: Long?,
-    onSeek: (Long) -> Unit,
-) {
-    IconButton(
-        onClick = { targetMs?.let(onSeek) },
-        enabled = targetMs != null,
-        colors =
-            IconButtonDefaults.iconButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
-        modifier = Modifier.size(32.dp),
-    ) {
-        Icon(icon, contentDescription = description, modifier = Modifier.size(22.dp))
-    }
-}
-
-/** Pill-shaped ±30s, flanking the play button. */
-@Composable
-private fun SeekPill(
-    icon: ImageVector,
-    description: String,
-    onClick: () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        modifier = Modifier.width(80.dp).height(56.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = description, modifier = Modifier.size(28.dp))
-        }
-    }
-}
-
-/** One of the four bottom controls. Gold when its feature is armed (only sleep uses that today). */
-@Composable
-private fun ControlPill(
+private fun BigButton(
     icon: ImageVector,
     label: String,
-    active: Boolean = false,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    active: Boolean = false,
+    small: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
-        shape = CircleShape,
+        enabled = enabled,
+        shape = MaterialTheme.shapes.large,
         color =
             if (active) {
                 MaterialTheme.colorScheme.primary
             } else {
-                MaterialTheme.colorScheme.surfaceContainerHigh
+                MaterialTheme.colorScheme.secondaryContainer
             },
         contentColor =
-            if (active) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurface
+            when {
+                active -> MaterialTheme.colorScheme.onPrimary
+                enabled -> MaterialTheme.colorScheme.onSecondaryContainer
+                else -> MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.38f)
             },
+        modifier = modifier,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(if (small) 24.dp else 36.dp))
+            Text(
+                label,
+                style = if (small) MaterialTheme.typography.labelMedium else MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }
