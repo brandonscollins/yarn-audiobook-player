@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -159,7 +160,7 @@ class PlaybackService : MediaLibraryService() {
             },
         )
         effects.attach(player.audioSessionId)
-        session = MediaLibrarySession.Builder(this, player, Callback()).build()
+        session = MediaLibrarySession.Builder(this, SkipAsSeekPlayer(player), Callback()).build()
     }
 
     // Non-null per the MediaLibraryService contract: the platform never calls this before onCreate
@@ -606,4 +607,39 @@ class PlaybackService : MediaLibraryService() {
             return future
         }
     }
+}
+
+/**
+ * What every session controller (bluetooth/headset buttons, the notification, Android Auto) sees.
+ * Their next/previous would jump a whole file, which in a book is meaningless, so both become the
+ * same ±[SEEK_STEP_MS] the in-app buttons use. They're always offered too, so a one-file book still
+ * gets both buttons. The app itself only calls seekTo, which passes straight through.
+ */
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+private class SkipAsSeekPlayer(player: Player) : ForwardingPlayer(player) {
+    private val skipCommands =
+        intArrayOf(
+            Player.COMMAND_SEEK_TO_NEXT,
+            Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_PREVIOUS,
+            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+        )
+
+    override fun getAvailableCommands(): Player.Commands =
+        if (currentMediaItem == null) {
+            super.getAvailableCommands()
+        } else {
+            super.getAvailableCommands().buildUpon().addAll(*skipCommands).build()
+        }
+
+    override fun isCommandAvailable(command: Int): Boolean =
+        (command in skipCommands && currentMediaItem != null) || super.isCommandAvailable(command)
+
+    override fun seekToNext() = seekWithinBook(SEEK_STEP_MS)
+
+    override fun seekToNextMediaItem() = seekWithinBook(SEEK_STEP_MS)
+
+    override fun seekToPrevious() = seekWithinBook(-SEEK_STEP_MS)
+
+    override fun seekToPreviousMediaItem() = seekWithinBook(-SEEK_STEP_MS)
 }
