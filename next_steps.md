@@ -1,8 +1,15 @@
 # Next steps
 
-Current state: **v1.7, working and in daily use.** P0 was verified on a real
+Current state: **v1.8, working and in daily use.** P0 was verified on a real
 phone against the real Plex server; the batches below shipped on top of it.
-Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.7-debug.apk`.
+Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.8-debug.apk`.
+
+## Shipped (2026-11-02) — v1.8: skip buttons jump 30 seconds
+
+Bluetooth/headset, notification and Android Auto next/previous now seek ±30s
+(the in-app step) instead of jumping a whole file. Shown on one-file books too.
+In-app chapter jumps are unaffected (they seek directly). Not yet tried with a
+real Bluetooth device.
 
 ## Shipped (2026-10-21) — v1.7: player buttons fill the screen
 
