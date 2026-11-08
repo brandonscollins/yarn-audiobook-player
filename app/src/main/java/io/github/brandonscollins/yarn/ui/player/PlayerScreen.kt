@@ -5,7 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -255,9 +259,13 @@ fun PlayerScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
-            // Small cover beside the titles: the screen's height goes to tap targets instead,
-            // since this screen gets used one-handed in a car.
+        val sliderMax = bookDurationMs.coerceAtLeast(1L).toFloat()
+        val absoluteMs = absolutePositionMs(tracks, trackIndex, positionMs)
+        val sliderPosition = (dragPositionMs ?: absoluteMs.toFloat()).coerceIn(0f, sliderMax)
+
+        // Small cover beside the titles: the screen's height goes to tap targets instead,
+        // since this screen gets used one-handed in a car.
+        val header: @Composable () -> Unit = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AsyncImage(
                     model = thumbUri(prefs, book?.thumbPath.orEmpty()),
@@ -285,15 +293,9 @@ fun PlayerScreen(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
+        }
 
-            // Everything below is sized to hit without looking. The three button rows split all the
-            // height left over, in the 104:80:64 proportion they were first drawn at, so a tall phone
-            // gets bigger targets rather than an empty gap.
-            Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                val sliderMax = bookDurationMs.coerceAtLeast(1L).toFloat()
-                val absoluteMs = absolutePositionMs(tracks, trackIndex, positionMs)
-                val sliderPosition = (dragPositionMs ?: absoluteMs.toFloat()).coerceIn(0f, sliderMax)
+        val scrubber: @Composable () -> Unit = {
                 ChapterSlider(
                     positionMs = sliderPosition,
                     durationMs = sliderMax,
@@ -320,7 +322,12 @@ fun PlayerScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+        }
 
+        // Everything here is sized to hit without looking. The three button rows split all the
+        // height they're given, in the 104:80:64 proportion they were first drawn at, so a tall
+        // phone gets bigger targets rather than an empty gap.
+        val controls: @Composable ColumnScope.() -> Unit = {
                 // Chapter steps flank play/pause. They stay in place (dimmed) when there is
                 // nowhere to step, so a thumb reaching for a spot never lands on something else.
                 val seekTo = { target: Long ->
@@ -422,7 +429,9 @@ fun PlayerScreen(
                         modifier = tile,
                     )
                 }
+        }
 
+        val upNextRow: @Composable () -> Unit = {
                 upNext?.let { next ->
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(
@@ -454,7 +463,37 @@ fun PlayerScreen(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
+            if (maxWidth > maxHeight) {
+                // Landscape: stacked, the header and slider leave the buttons no height at all,
+                // so the buttons get their own column beside the book.
+                Row(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                    ) {
+                        header()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        scrubber()
+                        upNextRow()
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1.4f).fillMaxHeight().padding(bottom = 16.dp)) {
+                        controls()
+                    }
+                }
+            } else {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    header()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        scrubber()
+                        controls()
+                        upNextRow()
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+                }
             }
         }
     }
