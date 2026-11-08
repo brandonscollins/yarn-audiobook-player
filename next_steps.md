@@ -1,8 +1,15 @@
 # Next steps
 
-Current state: **v1.8, working and in daily use.** P0 was verified on a real
+Current state: **v1.9, working and in daily use.** P0 was verified on a real
 phone against the real Plex server; the batches below shipped on top of it.
-Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.8-debug.apk`.
+Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.9-debug.apk`.
+
+## Shipped (2026-11-07) — v1.9: player works in landscape
+
+Held sideways, the player stacked the cover, slider and Up next on top and
+squeezed the buttons to nothing. Landscape now puts the book and slider in a
+left column (scrolls if short) and all the buttons in a right column that
+fills the height. Portrait is unchanged. Not yet tried on a real phone.
 
 ## Shipped (2026-11-02) — v1.8: skip buttons jump 30 seconds
 
