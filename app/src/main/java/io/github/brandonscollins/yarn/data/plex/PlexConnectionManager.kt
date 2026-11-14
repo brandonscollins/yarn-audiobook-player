@@ -12,6 +12,7 @@ import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 
 const val CONNECT_TIMEOUT_MS = 15_000L
+private const val REFRESH_TIMEOUT_MS = 5_000L
 
 /**
  * Races every candidate connection and returns the first one that answers, or null if they all
@@ -67,6 +68,7 @@ class PlexConnectionManager(
 
     /** Re-runs the race. Returns the winning URI, or null if no candidate answered. */
     suspend fun connect(): String? {
+        refreshCandidates()
         val winner =
             raceConnections(prefs.serverConnections) { uri ->
                 api.mediaService.checkServer(uri).isSuccessful
@@ -78,6 +80,21 @@ class PlexConnectionManager(
             raced = true
         }
         return winner
+    }
+
+    /**
+     * The candidates saved at server-pick time go stale: plex.direct and relay URIs embed the
+     * server's IP, so a new public IP at the server's house leaves every saved candidate dead and
+     * the race can never win again. Ask plex.tv for today's list (and server token) before racing.
+     * Best-effort and short: offline, the saved list still stands.
+     */
+    private suspend fun refreshCandidates() {
+        val server =
+            withTimeoutOrNull(REFRESH_TIMEOUT_MS) {
+                runCatching { api.loginService.resources() }.getOrNull()
+            }?.firstOrNull { it.clientIdentifier == prefs.serverId } ?: return
+        if (server.connections.isNotEmpty()) prefs.serverConnections = server.connections
+        server.accessToken?.takeIf { it.isNotEmpty() }?.let { prefs.serverToken = it }
     }
 
     /**

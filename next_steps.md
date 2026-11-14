@@ -1,8 +1,16 @@
 # Next steps
 
-Current state: **v1.9, working and in daily use.** P0 was verified on a real
+Current state: **v1.10, working and in daily use.** P0 was verified on a real
 phone against the real Plex server; the batches below shipped on top of it.
-Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.9-debug.apk`.
+Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.10-debug.apk`.
+
+## Shipped (2026-11-13) — v1.10: finds the server after its address changes
+
+Streaming and cover art stopped working while search and downloads (both
+local) still did. Yarn only ever raced the server addresses saved at sign-in,
+and those embed the server's public IP. Every connect now asks plex.tv for the
+current addresses and server token first (5s limit, falls back to the saved
+list offline). Cause not confirmed on the phone before shipping.
 
 ## Shipped (2026-11-07) — v1.9: player works in landscape
 
