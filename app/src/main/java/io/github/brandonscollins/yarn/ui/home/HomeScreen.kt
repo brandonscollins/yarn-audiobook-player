@@ -1,7 +1,6 @@
 package io.github.brandonscollins.yarn.ui.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.github.brandonscollins.yarn.ui.common.bookClickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -113,7 +113,7 @@ fun HomeScreen(
                         CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainer,
                         ),
-                    modifier = Modifier.fillMaxWidth().clickable { play(cl.book.id) },
+                    modifier = Modifier.fillMaxWidth().bookClickable(cl.book) { play(cl.book.id) },
                 ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
@@ -251,7 +251,7 @@ internal fun PlayedBookItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    Column(modifier = modifier.clickable(onClick = onClick)) {
+    Column(modifier = modifier.bookClickable(row.book, onClick)) {
         Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
             AsyncImage(
                 model = thumbUri(prefs, row.book.thumbPath),
@@ -289,7 +289,7 @@ private fun RecentBookItem(
     onClick: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.width(124.dp).padding(end = 14.dp).clickable(onClick = onClick),
+        modifier = Modifier.width(124.dp).padding(end = 14.dp).bookClickable(book, onClick),
     ) {
         AsyncImage(
             model = thumbUri(prefs, book.thumbPath),

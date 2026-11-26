@@ -72,6 +72,14 @@ class PlayerController(
 
     val sleepRemainingMs: StateFlow<Long?> = SleepState.remainingMs
 
+    /**
+     * True once the service has answered and no [playBook] is still loading. Only then does a null
+     * [bookId] really mean "nothing loaded" rather than "not known yet".
+     */
+    private val _settled = MutableStateFlow(false)
+    val settled: StateFlow<Boolean> = _settled.asStateFlow()
+    private var loads = 0
+
     /** Audio effects, owned by the service; see [EffectsState]. */
     val boostMb: StateFlow<Int> = EffectsState.boostMb
     val eqEnabled: StateFlow<Boolean> = EffectsState.eqEnabled
@@ -99,47 +107,64 @@ class PlayerController(
     }
 
     /** Loads the book's tracks from Room and starts at the furthest-ahead known position. */
-    fun playBook(bookId: Int) {
+    fun playBook(bookId: Int) = playBook { bookId }
+
+    /**
+     * For a caller that must look the book up first (the launcher's Resume shortcut): the load
+     * counts as pending from this call, so the Player waits for it instead of leaving as empty.
+     */
+    fun playBook(findBookId: suspend () -> Int?) {
+        loads++
+        _settled.value = false
         scope.launch {
-            // A fully downloaded book needs no server at all — don't make offline playback wait
-            // out the connection race. Anything that will stream still races first (gotcha #3),
-            // because those URIs are built from the chosen connection.
-            val known = db.trackDao().getTracksForBook(bookId).first().map { verifiedLocal(bookId, it) }
-            val allLocal = known.isNotEmpty() && known.all { it.isCached && it.localUri != null }
-            if (!allLocal) {
-                PlexGraph.connections(appContext).ensureConnected()
-                if (plexPrefs.chosenServerUri.isEmpty()) return@launch
+            try {
+                findBookId()?.let { loadAndPlay(it) }
+            } finally {
+                loads--
+                _settled.value = controller != null && loads == 0
             }
-            // A book opened for the first time may still have its track sync in flight — without
-            // this, tapping Play a beat too early was a silent no-op.
-            val tracks =
-                known.ifEmpty {
-                    runCatching { syncRepo.syncTracks(bookId) }
-                    db.trackDao().getTracksForBook(bookId).first()
-                }
-            if (tracks.isEmpty()) return@launch
-            // A "mark unplayed" tombstone (ledger.unplayedPending) still resolves correctly here:
-            // its own position is (first track, 0) and markUnplayed already zeroed every track's
-            // viewOffsetMs, so resumePoint has nothing further-ahead to prefer — the book starts
-            // over from 0, which is exactly what playing it after marking it unplayed should do.
-            val ledger = db.positionDao().getPosition(bookId)
-            val resume = resumePoint(tracks, ledger)
-            val start = rewound(tracks, resume, ledger)
-            consumePlexOffsets(bookId, tracks, resume, ledger)
-            val items = tracks.map { it.toMediaItem(bookId, plexPrefs) }
-            withContext(Dispatchers.Main) {
-                val c = controller ?: return@withContext
-                c.setMediaItems(items, start.trackIndex, start.positionMs)
-                c.setPlaybackSpeed(coerceSpeed(playerPrefs.speedFor(bookId)))
-                c.prepare()
-                c.play()
+        }
+    }
+
+    private suspend fun loadAndPlay(bookId: Int) {
+        // A fully downloaded book needs no server at all — don't make offline playback wait
+        // out the connection race. Anything that will stream still races first (gotcha #3),
+        // because those URIs are built from the chosen connection.
+        val known = db.trackDao().getTracksForBook(bookId).first().map { verifiedLocal(bookId, it) }
+        val allLocal = known.isNotEmpty() && known.all { it.isCached && it.localUri != null }
+        if (!allLocal) {
+            PlexGraph.connections(appContext).ensureConnected()
+            if (plexPrefs.chosenServerUri.isEmpty()) return
+        }
+        // A book opened for the first time may still have its track sync in flight — without
+        // this, tapping Play a beat too early was a silent no-op.
+        val tracks =
+            known.ifEmpty {
+                runCatching { syncRepo.syncTracks(bookId) }
+                db.trackDao().getTracksForBook(bookId).first()
             }
-            // Embedded chapters (one metadata request per track), fetched once per book — after
-            // play() so a slow server never delays the audio. Failure or a genuinely chapterless
-            // book leaves no rows, which just re-probes on the next open.
-            if (db.chapterDao().getChaptersForBook(bookId).first().isEmpty()) {
-                runCatching { syncRepo.syncChapters(bookId) }
-            }
+        if (tracks.isEmpty()) return
+        // A "mark unplayed" tombstone (ledger.unplayedPending) still resolves correctly here:
+        // its own position is (first track, 0) and markUnplayed already zeroed every track's
+        // viewOffsetMs, so resumePoint has nothing further-ahead to prefer — the book starts
+        // over from 0, which is exactly what playing it after marking it unplayed should do.
+        val ledger = db.positionDao().getPosition(bookId)
+        val resume = resumePoint(tracks, ledger)
+        val start = rewound(tracks, resume, ledger)
+        consumePlexOffsets(bookId, tracks, resume, ledger)
+        val items = tracks.map { it.toMediaItem(bookId, plexPrefs) }
+        withContext(Dispatchers.Main) {
+            val c = controller ?: return@withContext
+            c.setMediaItems(items, start.trackIndex, start.positionMs)
+            c.setPlaybackSpeed(coerceSpeed(playerPrefs.speedFor(bookId)))
+            c.prepare()
+            c.play()
+        }
+        // Embedded chapters (one metadata request per track), fetched once per book — after
+        // play() so a slow server never delays the audio. Failure or a genuinely chapterless
+        // book leaves no rows, which just re-probes on the next open.
+        if (db.chapterDao().getChaptersForBook(bookId).first().isEmpty()) {
+            runCatching { syncRepo.syncChapters(bookId) }
         }
     }
 
@@ -287,6 +312,7 @@ class PlayerController(
             },
         )
         publish()
+        _settled.value = loads == 0
         pollJob?.cancel()
         pollJob =
             scope.launch {

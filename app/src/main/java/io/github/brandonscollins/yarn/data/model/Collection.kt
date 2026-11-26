@@ -3,11 +3,16 @@ package io.github.brandonscollins.yarn.data.model
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-/** A Plex collection/series grouping books. */
+/**
+ * A Plex collection/series grouping books. [customOrder] is true when the collection is set to
+ * Plex's "Custom" sort, i.e. someone dragged it into reading order. Then its order beats the
+ * numbers in the titles for "Up next".
+ */
 @Entity(tableName = "collections")
 data class Collection(
     @PrimaryKey val id: Int,
     val title: String,
+    val customOrder: Boolean = false,
 )
 
 /**

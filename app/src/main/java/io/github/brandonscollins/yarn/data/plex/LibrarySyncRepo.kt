@@ -67,7 +67,13 @@ class LibrarySyncRepo(
         val collections =
             api.mediaService.retrieveCollections(libraryId).mediaContainer.metadata
                 .mapNotNull { meta ->
-                    meta.ratingKey.toIntOrNull()?.let { BookCollection(id = it, title = meta.title) }
+                    meta.ratingKey.toIntOrNull()?.let {
+                        BookCollection(
+                            id = it,
+                            title = meta.title,
+                            customOrder = meta.collectionSort?.content == "2",
+                        )
+                    }
                 }
         db.collectionDao().upsertAll(collections)
 

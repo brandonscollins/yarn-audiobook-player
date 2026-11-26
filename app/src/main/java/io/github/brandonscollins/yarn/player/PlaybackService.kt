@@ -2,6 +2,7 @@ package io.github.brandonscollins.yarn.player
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
@@ -30,8 +31,10 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
+import io.github.brandonscollins.yarn.data.local.upNextFlow
 import io.github.brandonscollins.yarn.data.model.PlaybackPosition
 import io.github.brandonscollins.yarn.data.model.Track
+import io.github.brandonscollins.yarn.data.plex.LibrarySyncRepo
 import io.github.brandonscollins.yarn.data.plex.PlexConnectionManager
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.settings.PlexPrefs
@@ -65,6 +68,9 @@ const val KEY_EQ_ENABLED = "yarn.eqEnabled"
 const val KEY_EQ_PRESET = "yarn.eqPreset"
 const val KEY_EQ_BAND = "yarn.eqBand"
 const val KEY_EQ_BAND_LEVEL_MB = "yarn.eqBandLevelMb"
+
+/** Countdown plus a slow connection race and track sync, with room to spare. */
+private const val ADVANCE_WAKE_LOCK_MS = 60_000L
 
 /** Insurance against process death: ledger tick while actively playing. */
 private const val LEDGER_TICK_MS = 10_000L
@@ -107,6 +113,20 @@ class PlaybackService : MediaLibraryService() {
     /** Player-thread scope: the sleep timer and the ledger tick both touch the player. */
     private val playerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var tickJob: Job? = null
+    private var advanceJob: Job? = null
+
+    /** True from the book's last frame until the next book starts or the countdown is called off. */
+    private var advancing = false
+
+    /** Set by a Cancel (or no next book) and cleared by a new queue; see [startAutoAdvance]. */
+    private var advanceSuppressed = false
+
+    private val advanceWakeLock by lazy {
+        (getSystemService(POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "yarn:auto-advance")
+            .apply { setReferenceCounted(false) }
+    }
+    private lateinit var syncRepo: LibrarySyncRepo
 
     private var sleepSuppressed = false
     private var pausedAtElapsedMs = 0L
@@ -128,6 +148,7 @@ class PlaybackService : MediaLibraryService() {
         plexPrefs = PlexGraph.prefs(this)
         connectionManager = PlexGraph.connections(this)
         db = PlexGraph.db(this)
+        syncRepo = LibrarySyncRepo(plexPrefs, PlexGraph.api(this), db, this)
         val resolvingFactory =
             ResolvingDataSource.Factory(DefaultDataSource.Factory(this)) { dataSpec ->
                 resolveStreamingUri(dataSpec)
@@ -170,13 +191,14 @@ class PlaybackService : MediaLibraryService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         writeLedger(ProgressSyncWorker.STATE_PAUSED)
-        if (!player.isPlaying) stopSelf()
+        if (!player.isPlaying && !advancing) stopSelf()
     }
 
     override fun onDestroy() {
         writeLedger(ProgressSyncWorker.STATE_STOPPED)
         tickJob?.cancel()
         playerScope.cancel()
+        AutoAdvanceState.cancel()
         session?.release()
         session = null
         // Effects hold the player's audio session — release them before the player goes away.
@@ -284,6 +306,98 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /**
+     * The book just ended: count down [AUTO_ADVANCE_SECONDS] with the next unstarted book of the
+     * series showing in the app, then start it. Lives in the service so it also happens with the
+     * screen off and in the car. A running sleep timer wins: you fell asleep, so nothing starts.
+     * The ledger already holds the end position (the pause at the end wrote it), so the finished
+     * book is marked done before anything here runs.
+     *
+     * A wake lock covers the countdown and the start: ExoPlayer drops its own once paused, and a
+     * locked phone that dozes would freeze the countdown's clock.
+     */
+    private fun startAutoAdvance() {
+        val finishedId = currentBookId() ?: return
+        if (SleepState.remainingMs.value != null || advanceSuppressed) return
+        advanceJob?.cancel()
+        // Set before Media3's (posted) notification update sees the pause, so it stays foreground.
+        advancing = true
+        if (!advanceWakeLock.isHeld) advanceWakeLock.acquire(ADVANCE_WAKE_LOCK_MS)
+        advanceJob =
+            playerScope.launch {
+                try {
+                    val nextId =
+                        try {
+                            countdownToNext(finishedId)
+                        } finally {
+                            AutoAdvanceState.cancel()
+                        }
+                    // Out of advanceJob before startBook, whose new queue calls cancelAutoAdvance.
+                    advanceJob = null
+                    if (nextId != null) {
+                        startBook(nextId)
+                    } else {
+                        // Cancelled in the app, or nothing next: Play from here mustn't loop back
+                        // into a countdown the user just turned down.
+                        advanceSuppressed = true
+                    }
+                } finally {
+                    // Foreground held until the next book is really playing, or given up on.
+                    advancing = false
+                    if (advanceWakeLock.isHeld) advanceWakeLock.release()
+                    if (!player.isPlaying) session?.let { onUpdateNotification(it, false) }
+                }
+            }
+    }
+
+    /** Null when there is no next book or the app's Cancel cleared [AutoAdvanceState]. */
+    private suspend fun countdownToNext(finishedId: Int): Int? {
+        val finished = db.bookDao().getBook(finishedId).first() ?: return null
+        val next = upNextFlow(db, finished).first() ?: return null
+        for (left in AUTO_ADVANCE_SECONDS downTo 1) {
+            AutoAdvanceState.pending.value = PendingNext(next.id, next.title, left)
+            delay(1_000)
+            if (AutoAdvanceState.pending.value?.bookId != next.id) return null
+        }
+        return next.id
+    }
+
+    /** The job's own `finally` drops the foreground hold and the wake lock. */
+    private fun cancelAutoAdvance() {
+        advanceJob?.cancel()
+        advanceJob = null
+        AutoAdvanceState.cancel()
+    }
+
+    /** Holds the foreground through the countdown; see the pauseAtEndOfMediaItems note. */
+    override fun onUpdateNotification(
+        session: MediaSession,
+        startInForegroundRequired: Boolean,
+    ) = super.onUpdateNotification(session, startInForegroundRequired || advancing)
+
+    /**
+     * Starts [bookId] from the service itself, the way `PlayerController.playBook` does from the
+     * UI: tracks synced if this book was never opened, a connection raced if anything streams.
+     */
+    private suspend fun startBook(bookId: Int) {
+        if (db.trackDao().getTracksForBook(bookId).first().isEmpty()) {
+            runCatching { syncRepo.syncTracks(bookId) }
+        }
+        val tracks = db.trackDao().getTracksForBook(bookId).first()
+        if (tracks.isEmpty()) return
+        if (!tracks.all { it.isCached && it.localUri != null }) {
+            if (!runCatching { connectionManager.ensureConnected() }.getOrDefault(false)) return
+        }
+        val queue = resolveBookQueue(bookId) ?: return
+        player.setMediaItems(queue.mediaItems, queue.startIndex, queue.startPositionMs)
+        player.setPlaybackSpeed(coerceSpeed(prefs.speedFor(bookId)))
+        player.prepare()
+        player.play()
+        if (db.chapterDao().getChaptersForBook(bookId).first().isEmpty()) {
+            runCatching { syncRepo.syncChapters(bookId) }
+        }
+    }
+
     private fun startLedgerTick() {
         tickJob?.cancel()
         tickJob =
@@ -358,7 +472,10 @@ class PlaybackService : MediaLibraryService() {
             // silently restart a running timer. playWhenReady only moves when playback is actually
             // asked to start or stop — by the UI, the notification, a media button or bluetooth,
             // all of which reach Player.play() through the session, so one hook covers them all.
+            // The last file of the book paused itself at its end (see onMediaItemTransition).
+            if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) startAutoAdvance()
             if (playWhenReady) {
+                cancelAutoAdvance()
                 maybeRewindOnResume()
                 maybeArmSleepWindow()
                 queuePositioned = false
@@ -371,7 +488,17 @@ class PlaybackService : MediaLibraryService() {
         ) {
             // A whole new queue means the caller chose the start position; anything else (an
             // automatic roll into the next file) leaves the rewind rule alone.
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) queuePositioned = true
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                queuePositioned = true
+                // Something else was picked to play, so the countdown to the next book is moot.
+                cancelAutoAdvance()
+                advanceSuppressed = false
+            }
+            // Pause on the last file's final frame instead of running into STATE_ENDED: ENDED drops
+            // the service out of the foreground, and Android 12+ then refuses to bring it back with
+            // the screen off, so the next book could never start. Paused-at-the-end keeps READY,
+            // which onUpdateNotification can hold in the foreground through the countdown.
+            player.pauseAtEndOfMediaItems = !player.hasNextMediaItem()
             // Ledger trigger: track transition. The new item's position is the resume point now.
             writeLedger(
                 if (player.isPlaying) {
@@ -389,6 +516,8 @@ class PlaybackService : MediaLibraryService() {
         ) {
             // Ledger trigger: seek (including the sleep timer's rewind to the fade start).
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                // Scrubbing back during the countdown means "not yet".
+                cancelAutoAdvance()
                 writeLedger(ProgressSyncWorker.STATE_PAUSED)
             }
         }

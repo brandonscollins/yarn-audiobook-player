@@ -280,3 +280,19 @@ next_steps.md.
 fails silently (nothing is shown). If the store moves (e.g. public on 443),
 change the one constant. Adds the `REQUEST_INSTALL_PACKAGES` permission; the
 first Install sends the user to Android's "allow installs from Yarn" screen.
+
+## ADR-019 - Auto-play the next book by pausing on the last frame, not ending (2026-11-25)
+
+**Decision:** When a book finishes, the service counts down 10 seconds
+("Up next" bar with Cancel, shown on every screen) and starts the next unstarted
+book of the series, as chosen by the shared `upNextFlow`. A running sleep timer
+skips it. The last file of a book is played with `pauseAtEndOfMediaItems`, so the
+book stops paused on its final frame instead of reaching `STATE_ENDED`, and
+`PlaybackService.onUpdateNotification` holds the foreground while the countdown runs.
+**Why:** Media3 1.4.1 drops the service out of the foreground in `STATE_ENDED`,
+and Android 12+ then refuses to bring it back from the background. Ending
+normally would make auto-play silently fail with the screen off or in the car.
+**Consequence:** A finished book now rests paused at its end rather than ended.
+The countdown and its Cancel exist only in the app; in the car the next book just
+starts after 10 seconds. A Plex collection set to "Custom" sort now beats title
+numbering for "Up next" (Room v9 adds `collections.customOrder`).

@@ -4,7 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.brandonscollins.yarn.data.local.YarnDatabase
-import io.github.brandonscollins.yarn.data.local.nextUpNext
+import io.github.brandonscollins.yarn.data.local.upNextFlow
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.PlaybackPosition
 import io.github.brandonscollins.yarn.data.model.isStartedRow
@@ -82,21 +82,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     val upNext: StateFlow<Audiobook?> =
         continueListening.flatMapLatest { current ->
             if (current == null) return@flatMapLatest flowOf(null)
-            combine(
-                db.collectionDao().getCollectionPeers(current.book.id),
-                db.positionDao().getAll(),
-                db.bookDao().getAllBooks(),
-            ) { peers, positions, books ->
-                val started = positions.filter(::isStartedRow).mapTo(mutableSetOf()) { it.bookId }
-                val peerIds = peers.mapTo(mutableSetOf()) { it.bookId }
-                nextUpNext(
-                    current = current.book,
-                    collectionPeers = books.filter { it.id in peerIds },
-                    sameAuthorBooks = books.filter { it.author == current.book.author },
-                    crossRefs = peers,
-                    startedBookIds = started,
-                )?.let { id -> books.firstOrNull { it.id == id } }
-            }
+            upNextFlow(db, current.book)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val recentlyAdded: StateFlow<List<Audiobook>> =

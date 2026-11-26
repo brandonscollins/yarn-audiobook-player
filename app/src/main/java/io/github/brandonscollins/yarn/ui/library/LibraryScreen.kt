@@ -58,6 +58,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.github.brandonscollins.yarn.ui.common.bookClickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -387,7 +388,7 @@ private fun BookGridItem(
     prefs: PlexPrefs,
     onClick: () -> Unit,
 ) {
-    Column(modifier = Modifier.padding(8.dp).clickable(onClick = onClick)) {
+    Column(modifier = Modifier.padding(8.dp).bookClickable(row.book, onClick)) {
         Box(modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
             AsyncImage(
                 model = thumbUri(prefs, row.book.thumbPath),
@@ -444,7 +445,7 @@ private fun BookListRow(
 ) {
     Row(
         modifier =
-            Modifier.fillMaxWidth().clickable(onClick = onClick)
+            Modifier.fillMaxWidth().bookClickable(row.book, onClick)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

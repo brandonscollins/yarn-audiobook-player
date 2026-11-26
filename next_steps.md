@@ -1,8 +1,28 @@
 # Next steps
 
-Current state: **v1.10, working and in daily use.** P0 was verified on a real
+Current state: **v1.11, working and in daily use.** P0 was verified on a real
 phone against the real Plex server; the batches below shipped on top of it.
-Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.10-debug.apk`.
+Build with `./gradlew assembleDebug` → `app/build/outputs/apk/debug/yarn-1.11-debug.apk`.
+
+## Shipped (2026-11-25) — v1.11: auto-play next book, long-press download, no empty player
+
+- **Empty player on cold start.** After Android closed Yarn in the background,
+  tapping the icon could restore the Player with no book and a back arrow that
+  closed the app. The Player now leaves itself once the player service answers
+  and nothing is loading, and back from it always lands on a screen.
+- **Next book plays itself.** 10-second "Up next" bar with Cancel, then the next
+  unstarted book of the series starts. Works with the screen locked (ADR-019).
+  A running sleep timer wins.
+- **Hand-ordered Plex collections win.** A collection on Plex's "Custom" sort
+  now decides "Up next" ahead of the numbers in titles.
+- **Long-press any book** (Home, Library, Recently played, Up next) for
+  Download / Cancel / Remove.
+
+Tested on the emulator with a fake two-book series of silent audio: countdown,
+auto-start (screen on and locked), Cancel, cold-start return, back chain. The
+emulator draws black on this PC, so the checks read the screen as text rather
+than screenshots. Not yet tried on the real phone, a real Plex "Custom"
+collection, or in the car.
 
 ## Shipped (2026-11-13) — v1.10: finds the server after its address changes
 

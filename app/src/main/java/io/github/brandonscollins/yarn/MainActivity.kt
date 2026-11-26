@@ -79,10 +79,8 @@ class MainActivity : ComponentActivity() {
     private fun handleResumeShortcut(intent: Intent) {
         if (intent.action != ACTION_RESUME || PlexGraph.prefs(this).libraryId.isEmpty()) return
         val controller = ViewModelProvider(this)[PlayerViewModel::class.java].controller
-        lifecycleScope.launch {
-            val position = PlexGraph.db(this@MainActivity).positionDao().getMostRecent().first()
-            controller.playBook(position?.bookId ?: return@launch)
-        }
+        val db = PlexGraph.db(this)
+        controller.playBook { db.positionDao().getMostRecent().first()?.bookId }
     }
 
     /** Media3's playback notification is silently dropped on 33+ without the runtime grant. */

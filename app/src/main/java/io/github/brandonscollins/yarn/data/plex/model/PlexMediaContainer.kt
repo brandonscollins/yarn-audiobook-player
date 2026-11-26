@@ -2,6 +2,7 @@ package io.github.brandonscollins.yarn.data.plex.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
 
 /** Every Plex JSON response is wrapped in a top-level `MediaContainer`. */
 @Serializable
@@ -44,6 +45,11 @@ data class PlexMetadata(
     /** "YYYY-MM-DD" release date on the album; preferred over [year] when present. */
     val originallyAvailableAt: String = "",
     val year: Int = 0,
+    /**
+     * On a collection: 0 release date, 1 alphabetical, 2 custom (hand-ordered). A primitive so it
+     * decodes whether Plex sends it as a number or a string.
+     */
+    val collectionSort: JsonPrimitive? = null,
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),
     @SerialName("Genre") val genres: List<PlexTag> = emptyList(),
     @SerialName("Collection") val collections: List<PlexTag> = emptyList(),

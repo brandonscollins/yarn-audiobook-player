@@ -2,6 +2,7 @@ package io.github.brandonscollins.yarn.ui.nav
 
 import android.content.Intent
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import io.github.brandonscollins.yarn.player.AutoAdvanceState
+import io.github.brandonscollins.yarn.ui.common.BookActionsSheet
 import io.github.brandonscollins.yarn.ui.detail.BookDetailScreen
 import io.github.brandonscollins.yarn.ui.home.HomeScreen
 import io.github.brandonscollins.yarn.ui.home.RecentlyPlayedScreen
@@ -38,6 +41,7 @@ import io.github.brandonscollins.yarn.ui.library.LibraryScreen
 import io.github.brandonscollins.yarn.ui.onboarding.LibraryPickScreen
 import io.github.brandonscollins.yarn.ui.onboarding.LoginScreen
 import io.github.brandonscollins.yarn.ui.onboarding.ServerPickScreen
+import io.github.brandonscollins.yarn.ui.player.AutoAdvanceBar
 import io.github.brandonscollins.yarn.ui.player.MiniPlayerBar
 import io.github.brandonscollins.yarn.ui.player.PlayerScreen
 import io.github.brandonscollins.yarn.ui.player.PlayerViewModel
@@ -88,6 +92,7 @@ fun YarnApp(startDestination: String) {
     val playerViewModel: PlayerViewModel = viewModel()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val bookIdPlaying by playerViewModel.controller.bookId.collectAsState()
+    val autoAdvance by AutoAdvanceState.pending.collectAsState()
 
     val showMiniPlayer =
         bookIdPlaying != null &&
@@ -106,9 +111,12 @@ fun YarnApp(startDestination: String) {
 
     ResumeShortcutEffect(navController)
 
+    BookActionsSheet()
+
     Scaffold(
         bottomBar = {
             Column {
+                autoAdvance?.let { AutoAdvanceBar(it) }
                 if (showMiniPlayer) {
                     MiniPlayerBar(
                         playerViewModel = playerViewModel,
@@ -210,9 +218,26 @@ fun YarnApp(startDestination: String) {
                 )
             }
             composable(Routes.PLAYER) {
+                // Back always lands somewhere: a cold start can restore the Player with nothing
+                // under it, and popping that last entry used to close the app.
+                val leavePlayer: () -> Unit = {
+                    if (navController.previousBackStackEntry != null) {
+                        navController.popBackStack()
+                    } else {
+                        navController.navigate(Routes.HOME) { popUpTo(0) }
+                    }
+                }
+                BackHandler(enabled = navController.previousBackStackEntry == null, onBack = leavePlayer)
+                // Never show an empty Player. After Android closes Yarn in the background, tapping
+                // the icon restores this screen with no book loaded; once the player service has
+                // answered and nothing is loading, a missing book means there is nothing to show.
+                val settled by playerViewModel.controller.settled.collectAsState()
+                LaunchedEffect(settled, bookIdPlaying) {
+                    if (settled && bookIdPlaying == null) leavePlayer()
+                }
                 PlayerScreen(
                     playerViewModel = playerViewModel,
-                    onBack = { navController.popBackStack() },
+                    onBack = leavePlayer,
                     onOpenDetail = { bookId -> navController.navigate(Routes.bookDetail(bookId)) },
                 )
             }

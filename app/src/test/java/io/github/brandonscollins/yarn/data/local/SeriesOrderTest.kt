@@ -177,6 +177,23 @@ class SeriesOrderTest {
     }
 
     @Test
+    fun `a hand-ordered plex collection beats the numbers in the titles`() {
+        // Prequel numbered 0.5 in reading order but titled "Book 9" by the publisher.
+        val books = listOf(book(1, "Cradle 1"), book(2, "Cradle 2"), book(3, "Cradle Book 9"))
+        val crossRefs =
+            listOf(
+                BookCollectionCrossRef(bookId = 1, collectionId = 10, ordinal = 0),
+                BookCollectionCrossRef(bookId = 3, collectionId = 10, ordinal = 1),
+                BookCollectionCrossRef(bookId = 2, collectionId = 10, ordinal = 2),
+            )
+        assertEquals(2, nextUpNext(books[0], books, emptyList(), crossRefs, emptySet()))
+        assertEquals(
+            3,
+            nextUpNext(books[0], books, emptyList(), crossRefs, emptySet(), customOrderIds = setOf(10)),
+        )
+    }
+
+    @Test
     fun `nothing anywhere means no up-next section`() {
         val current = book(1, "Project Hail Mary")
         assertNull(nextUpNext(current, listOf(current), listOf(current), emptyList(), emptySet()))

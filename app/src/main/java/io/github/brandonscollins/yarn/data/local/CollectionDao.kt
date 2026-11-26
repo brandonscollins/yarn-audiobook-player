@@ -26,6 +26,10 @@ interface CollectionDao {
     )
     fun getCollectionPeers(bookId: Int): Flow<List<BookCollectionCrossRef>>
 
+    /** Collections hand-ordered in Plex ("Custom" sort): their order is the reading order. */
+    @Query("SELECT id FROM collections WHERE customOrder = 1")
+    fun getCustomOrderIds(): Flow<List<Int>>
+
     @Upsert
     suspend fun upsertCrossRefs(crossRefs: List<BookCollectionCrossRef>)
 }

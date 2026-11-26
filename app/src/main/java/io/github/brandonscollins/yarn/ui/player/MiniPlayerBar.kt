@@ -16,6 +16,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -30,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
+import io.github.brandonscollins.yarn.player.AutoAdvanceState
+import io.github.brandonscollins.yarn.player.PendingNext
 import io.github.brandonscollins.yarn.ui.common.bookRemainingMs
 import io.github.brandonscollins.yarn.ui.common.formatRemaining
 import io.github.brandonscollins.yarn.ui.common.thumbUri
@@ -111,6 +114,39 @@ fun MiniPlayerBar(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The countdown after a book ends: "Up next in 7s: <title>" with Cancel. Shown on every screen,
+ * the Player included, because the book can end while you're anywhere in the app.
+ */
+@Composable
+fun AutoAdvanceBar(pending: PendingNext) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Up next in ${pending.secondsLeft}s",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                    pending.title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            TextButton(onClick = AutoAdvanceState::cancel) { Text("Cancel") }
         }
     }
 }

@@ -2,6 +2,9 @@ package io.github.brandonscollins.yarn.data.local
 
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.BookCollectionCrossRef
+import io.github.brandonscollins.yarn.data.model.isStartedRow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 
 /** A title parsed into "which series" plus "which book of it". [key] is already normalized. */
 data class SeriesEntry(
@@ -123,7 +126,37 @@ fun nextUpNext(
     sameAuthorBooks: List<Audiobook>,
     crossRefs: List<BookCollectionCrossRef>,
     startedBookIds: Set<Int>,
+    customOrderIds: Set<Int> = emptySet(),
 ): Int? =
-    nextInSeries(current, collectionPeers, startedBookIds)
+    // A collection hand-ordered in Plex is a deliberate reading order, so it beats title numbers.
+    nextInCollection(current.id, crossRefs.filter { it.collectionId in customOrderIds }, startedBookIds)
+        ?: nextInSeries(current, collectionPeers, startedBookIds)
         ?: nextInSeries(current, sameAuthorBooks, startedBookIds)
         ?: nextInCollection(current.id, crossRefs, startedBookIds)
+
+/**
+ * The next unstarted book of [current]'s series, live. One query shape for Home, the Player screen
+ * and the service's auto-play, so all three always agree on what "next" is.
+ */
+fun upNextFlow(
+    db: YarnDatabase,
+    current: Audiobook,
+): Flow<Audiobook?> =
+    combine(
+        db.collectionDao().getCollectionPeers(current.id),
+        db.collectionDao().getCustomOrderIds(),
+        db.positionDao().getAll(),
+        db.bookDao().getAllBooks(),
+    ) { peers, customIds, positions, books ->
+        // A "mark unplayed" tombstone reads as not-started until the outbox drains it.
+        val started = positions.filter(::isStartedRow).mapTo(mutableSetOf()) { it.bookId }
+        val peerIds = peers.mapTo(mutableSetOf()) { it.bookId }
+        nextUpNext(
+            current = current,
+            collectionPeers = books.filter { it.id in peerIds },
+            sameAuthorBooks = books.filter { it.author == current.author },
+            crossRefs = peers,
+            startedBookIds = started,
+            customOrderIds = customIds.toSet(),
+        )?.let { id -> books.firstOrNull { it.id == id } }
+    }

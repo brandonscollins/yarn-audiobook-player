@@ -20,7 +20,7 @@ import io.github.brandonscollins.yarn.data.model.Track
         PlaybackPosition::class,
         Chapter::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class YarnDatabase : RoomDatabase() {
@@ -114,5 +114,13 @@ val MIGRATION_7_8 =
                 "ALTER TABLE playback_positions " +
                     "ADD COLUMN unplayedPending INTEGER NOT NULL DEFAULT 0",
             )
+        }
+    }
+
+/** Adds `customOrder` on collections; 0 until the next library sync reads Plex's sort setting. */
+val MIGRATION_8_9 =
+    object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE collections ADD COLUMN customOrder INTEGER NOT NULL DEFAULT 0")
         }
     }

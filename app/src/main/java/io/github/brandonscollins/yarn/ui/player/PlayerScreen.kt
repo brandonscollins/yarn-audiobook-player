@@ -63,6 +63,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.github.brandonscollins.yarn.ui.common.bookClickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -73,11 +74,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import io.github.brandonscollins.yarn.data.download.DownloadState
 import io.github.brandonscollins.yarn.data.download.Downloads
-import io.github.brandonscollins.yarn.data.local.nextUpNext
+import io.github.brandonscollins.yarn.data.local.upNextFlow
 import io.github.brandonscollins.yarn.data.model.Audiobook
 import io.github.brandonscollins.yarn.data.model.Chapter
 import io.github.brandonscollins.yarn.data.model.Track
-import io.github.brandonscollins.yarn.data.model.isStartedRow
 import io.github.brandonscollins.yarn.data.plex.PlexGraph
 import io.github.brandonscollins.yarn.player.SEEK_STEP_MS
 import io.github.brandonscollins.yarn.player.absolutePositionMs
@@ -91,7 +91,6 @@ import io.github.brandonscollins.yarn.ui.common.formatDuration
 import io.github.brandonscollins.yarn.ui.common.formatMmSs
 import io.github.brandonscollins.yarn.ui.common.thumbUri
 import kotlin.math.abs
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -138,22 +137,7 @@ fun PlayerScreen(
         value = null
         val id = bookId ?: return@produceState
         val current = db.bookDao().getBook(id).first() ?: return@produceState
-        combine(
-            db.collectionDao().getCollectionPeers(id),
-            db.positionDao().getAll(),
-            db.bookDao().getAllBooks(),
-        ) { peers, positions, books ->
-            // A "mark unplayed" tombstone reads as not-started until the outbox drains it.
-            val started = positions.filter(::isStartedRow).mapTo(mutableSetOf()) { it.bookId }
-            val peerIds = peers.mapTo(mutableSetOf()) { it.bookId }
-            nextUpNext(
-                current = current,
-                collectionPeers = books.filter { it.id in peerIds },
-                sameAuthorBooks = books.filter { it.author == current.author },
-                crossRefs = peers,
-                startedBookIds = started,
-            )?.let { nextId -> books.firstOrNull { it.id == nextId } }
-        }.collect { value = it }
+        upNextFlow(db, current).collect { value = it }
     }
 
     val downloadState by produceState(DownloadState(), bookId) {
@@ -438,7 +422,7 @@ fun PlayerScreen(
                         modifier =
                             Modifier.fillMaxWidth()
                                 .clip(MaterialTheme.shapes.medium)
-                                .clickable { controller.playBook(next.id) }
+                                .bookClickable(next) { controller.playBook(next.id) }
                                 .padding(vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
